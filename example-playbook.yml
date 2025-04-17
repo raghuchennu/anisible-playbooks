@@ -1,8 +1,30 @@
----
+AWSTemplateFormatVersion: '2010-09-09'
 
-- name: apply common configuration to all nodes
-  hosts: local
-  remote_user: root
-  roles:
-  - web
-#test
+Parameters: VpcCIDR: Type: String Default: 10.0.0.0/16 Description: The CIDR block for the VPC PublicSubnetCIDR: Type: String Default: 10.0.1.0/24 Description: CIDR for the public subnet InstanceType: Type: String Default: t3.medium Description: EC2 instance type ImageId: Type: AWS::EC2::Image::Id Description: AMI ID to use for the instances (Amazon Linux 2 or Ubuntu preferred)
+
+Resources:
+
+VPC: Type: AWS::EC2::VPC Properties: CidrBlock: !Ref VpcCIDR EnableDnsSupport: true EnableDnsHostnames: true Tags: - Key: Name Value: CF-Jenkins-Sonar-Nexus-VPC
+
+InternetGateway: Type: AWS::EC2::InternetGateway Properties: Tags: - Key: Name Value: CF-InternetGateway
+
+AttachGateway: Type: AWS::EC2::VPCGatewayAttachment Properties: VpcId: !Ref VPC InternetGatewayId: !Ref InternetGateway
+
+PublicSubnet: Type: AWS::EC2::Subnet Properties: VpcId: !Ref VPC CidrBlock: !Ref PublicSubnetCIDR MapPublicIpOnLaunch: true AvailabilityZone: !Select [ 0, !GetAZs '' ] Tags: - Key: Name Value: CF-Public-Subnet
+
+RouteTable: Type: AWS::EC2::RouteTable Properties: VpcId: !Ref VPC Tags: - Key: Name Value: CF-RouteTable
+
+PublicRoute: Type: AWS::EC2::Route DependsOn: AttachGateway Properties: RouteTableId: !Ref RouteTable DestinationCidrBlock: 0.0.0.0/0 GatewayId: !Ref InternetGateway
+
+RouteTableAssociation: Type: AWS::EC2::SubnetRouteTableAssociation Properties: SubnetId: !Ref PublicSubnet RouteTableId: !Ref RouteTable
+
+InstanceSecurityGroup: Type: AWS::EC2::SecurityGroup Properties: GroupDescription: Allow HTTP UI access for Jenkins, SonarQube, and Nexus VpcId: !Ref VPC SecurityGroupIngress: - IpProtocol: tcp FromPort: 22 ToPort: 22 CidrIp: 0.0.0.0/0 - IpProtocol: tcp FromPort: 8080 ToPort: 8080 CidrIp: 0.0.0.0/0 - IpProtocol: tcp FromPort: 9000 ToPort: 9000 CidrIp: 0.0.0.0/0 - IpProtocol: tcp FromPort: 8081 ToPort: 8081 CidrIp: 0.0.0.0/0 Tags: - Key: Name Value: CF-InstanceSecurityGroup
+
+JenkinsInstance: Type: AWS::EC2::Instance Properties: InstanceType: !Ref InstanceType SubnetId: !Ref PublicSubnet ImageId: !Ref ImageId SecurityGroupIds: - !Ref InstanceSecurityGroup Tags: - Key: Name Value: CF-Jenkins-Instance UserData: Fn::Base64: !Sub | #!/bin/bash yum update -y amazon-linux-extras install java-openjdk11 -y wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key yum install jenkins -y systemctl enable jenkins systemctl start jenkins
+
+SonarQubeInstance: Type: AWS::EC2::Instance Properties: InstanceType: !Ref InstanceType SubnetId: !Ref PublicSubnet ImageId: !Ref ImageId SecurityGroupIds: - !Ref InstanceSecurityGroup Tags: - Key: Name Value: CF-SonarQube-Instance UserData: Fn::Base64: !Sub | #!/bin/bash yum update -y yum install java-11-openjdk-devel -y cd /opt wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-9.9.1.69595.zip unzip sonarqube-9.9.1.69595.zip mv sonarqube-9.9.1.69595 sonarqube useradd sonar chown -R sonar:sonar /opt/sonarqube su - sonar -c "/opt/sonarqube/bin/linux-x86-64/sonar.sh start"
+
+NexusInstance: Type: AWS::EC2::Instance Properties: InstanceType: !Ref InstanceType SubnetId: !Ref PublicSubnet ImageId: !Ref ImageId SecurityGroupIds: - !Ref InstanceSecurityGroup Tags: - Key: Name Value: CF-Nexus-Instance UserData: Fn::Base64: !Sub | #!/bin/bash yum update -y yum install java-1.8.0-openjdk -y cd /opt wget https://download.sonatype.com/nexus/3/latest-unix.tar.gz tar -xvzf latest-unix.tar.gz mv nexus-* nexus useradd nexus chown -R nexus:nexus /opt/nexus /opt/sonatype-work echo 'run_as_user="nexus"' > /opt/nexus/bin/nexus.rc /opt/nexus/bin/nexus start
+
+Outputs: JenkinsPublicIP: Description: Jenkins EC2 Public IP Value: !GetAtt JenkinsInstance.PublicIp SonarQubePublicIP: Description: SonarQube EC2 Public IP Value: !GetAtt SonarQubeInstance.PublicIp NexusPublicIP: Description: Nexus EC2 Public IP Value: !GetAtt NexusInstance.PublicIp
+
