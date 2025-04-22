@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DevOps setup — Jenkins, SonarQube, Nexus on EC2
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Default: "10.50.0.0/16"
+    Description: "CIDR block for the DevOps VPC"  # Removed invalid annotations
+
+  SubnetCIDR:
+    Type: String
+    Default: "10.50.1.0/24"
+    Description: "CIDR block for the public subnet"
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: "EC2 KeyPair for SSH access"
+
+  InstanceType:
+    Type: String
+    Default: "t3.medium"
+    AllowedValues:
+      - t2.medium
+      - t3.medium
+      - t3.large
+    Description: "EC2 instance type for DevOps tools"
+
+  LatestAmazonLinux2023Ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: "Dynamic SSM parameter for latest Amazon Linux 2023 AMI"
+
+# ... (Keep the rest of the Resources/Outputs section unchanged from your fixed template)
