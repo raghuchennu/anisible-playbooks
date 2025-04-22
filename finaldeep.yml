@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DevOps setup - Jenkins, SonarQube, Nexus on EC2
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Default: 10.50.0.0/16
+    Description: CIDR block for the DevOps VPC
+
+  SubnetCIDR:
+    Type: String
+    Default: 10.50.1.0/24
+    Description: CIDR block for the public subnet
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 KeyPair for SSH access
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t2.medium
+      - t3.medium
+      - t3.large
+    Description: EC2 instance type for DevOps tools
+
+  LatestAmazonLinux2023Ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 AMI
+
+Resources:
+  DevOpsVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: DevOps-VPC
+
+  DevOpsSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DevOpsVPC
+      CidrBlock: !Ref SubnetCIDR
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: DevOps-Subnet
+
+  DevOpsIGW:
+    Type: AWS::EC2::InternetGateway
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref DevOpsVPC
+      InternetGatewayId: !Ref DevOpsIGW
+
+  DevOpsRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DevOpsVPC
+
+  DevOpsRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref DevOpsRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref DevOpsIGW
+
+  RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DevOpsSubnet
+      RouteTableId: !Ref DevOpsRouteTable
+
+  DevOpsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH, Jenkins, SonarQube, and Nexus ports
+      VpcId: !Ref DevOpsVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 9000
+          ToPort: 9000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8081
+          ToPort: 8081
+          CidrIp: 0.0.0.0/0
+
+  JenkinsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      ImageId: !Ref LatestAmazonLinux2023Ami
+      SubnetId: !Ref DevOpsSubnet
+      SecurityGroupIds: [!Ref DevOpsSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: Jenkins
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          sudo dnf update -y
+          sudo dnf install -y java-11-amazon-corretto
+          sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+          sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+          sudo dnf install -y jenkins
+          sudo systemctl enable jenkins
+          sudo systemctl start jenkins
+
+  SonarQubeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      ImageId: !Ref LatestAmazonLinux2023Ami
+      SubnetId: !Ref DevOpsSubnet
+      SecurityGroupIds: [!Ref DevOpsSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: SonarQube
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          sudo dnf update -y
+          sudo dnf install -y java-11-amazon-corretto wget unzip
+          sudo sysctl -w vm.max_map_count=262144
+          cd /opt
+          sudo wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-10.4.1.88267.zip
+          sudo unzip sonarqube-10.4.1.88267.zip
+          sudo mv sonarqube-* sonarqube
+          sudo useradd sonar
+          sudo chown -R sonar:sonar /opt/sonarqube
+          sudo -u sonar /opt/sonarqube/bin/linux-x86-64/sonar.sh start
+
+  NexusInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      ImageId: !Ref LatestAmazonLinux2023Ami
+      SubnetId: !Ref DevOpsSubnet
+      SecurityGroupIds: [!Ref DevOpsSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: Nexus
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          sudo dnf update -y
+          sudo dnf install -y java-11-amazon-corretto wget
+          cd /opt
+          sudo wget https://download.sonatype.com/nexus/3/latest-unix.tar.gz
+          sudo tar -xzf latest-unix.tar.gz
+          sudo mv nexus-* nexus
+          sudo useradd nexus
+          sudo chown -R nexus:nexus /opt/nexus
+          echo 'run_as_user="nexus"' | sudo tee /opt/nexus/bin/nexus.rc
+          sudo -u nexus /opt/nexus/bin/nexus start
+
+Outputs:
+  JenkinsPublicIP:
+    Description: Jenkins server public IP
+    Value: !GetAtt JenkinsInstance.PublicIp
+  SonarQubePublicIP:
+    Description: SonarQube server public IP
+    Value: !GetAtt SonarQubeInstance.PublicIp
+  NexusPublicIP:
+    Description: Nexus server public IP
+    Value: !GetAtt NexusInstance.PublicIp
