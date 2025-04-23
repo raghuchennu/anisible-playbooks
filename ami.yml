@@ -1,0 +1,296 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IMS Tesco – DevOps tools on private EC2 with NAT and security (Amazon Linux 2)
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Description: CIDR block for the VPC
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[1-8])$'
+    ConstraintDescription: Must be 10.x.x.x/21–/28
+
+  PublicSubnetCIDR:
+    Type: String
+    Description: CIDR block for the public subnet
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be 10.x.x.x/23–/28
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Description: CIDR block for private subnet 1
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be 10.x.x.x/23–/28
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Description: CIDR block for private subnet 2
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be 10.x.x.x/23–/28
+
+  PrivateSubnet3CIDR:
+    Type: String
+    Description: CIDR block for private subnet 3
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be 10.x.x.x/23–/28
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 KeyPair for SSH
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t2.medium
+      - t3.medium
+      - t3.large
+    Description: EC2 instance type
+
+  SSHLocation:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR range allowed for SSH access
+
+  JenkinsPort:
+    Type: Number
+    Default: 8080
+    Description: Port for Jenkins UI
+
+  SonarQubePort:
+    Type: Number
+    Default: 9000
+    Description: Port for SonarQube UI
+
+  NexusPort:
+    Type: Number
+    Default: 8081
+    Description: Port for Nexus UI
+
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Description: Latest Amazon Linux 2 GP2 AMI via SSM
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: ims-tesco-vpc                                       #  [oai_citation_attribution:10‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ssm-parameter.html?utm_source=chatgpt.com)
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: ims-tesco-igw                                       #  [oai_citation_attribution:11‡GeeksforGeeks](https://www.geeksforgeeks.org/how-do-i-resolve-a-mapping-values-are-not-allowed-here-error-in-yaml/?utm_source=chatgpt.com)
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ims-tesco-public-rt                               # 
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway                             # 
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCIDR
+      AvailabilityZone: !Select [0, !GetAZs '']                   #  [oai_citation_attribution:12‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/intrinsic-function-reference-getavailabilityzones.html?utm_source=chatgpt.com)
+      MapPublicIpOnLaunch: true                                  #  [oai_citation_attribution:13‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-formats.html)
+      Tags:
+        - Key: Name
+          Value: ims-tesco-public-1
+
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc                                                 #  [oai_citation_attribution:14‡GitHub](https://github.com/yarnpkg/berry/issues/3416?utm_source=chatgpt.com)
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      AllocationId: !GetAtt NatEIP.AllocationId                  #  [oai_citation_attribution:15‡GitHub](https://github.com/yarnpkg/berry/issues/3416?utm_source=chatgpt.com)
+      Tags:
+        - Key: Name
+          Value: ims-tesco-nat
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ims-tesco-private-rt
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway                               # 
+
+  SubnetRouteTableAssociationPublic:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable                         # 
+
+  SubnetRouteTableAssociationPriv1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1CIDR
+      RouteTableId: !Ref PrivateRouteTable
+
+  SubnetRouteTableAssociationPriv2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2CIDR
+      RouteTableId: !Ref PrivateRouteTable
+
+  SubnetRouteTableAssociationPriv3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet3CIDR
+      RouteTableId: !Ref PrivateRouteTable
+
+  JenkinsSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Jenkins SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref JenkinsPort
+          ToPort: !Ref JenkinsPort
+          CidrIp: !Ref SSHLocation                               #  [oai_citation_attribution:16‡Stack Overflow](https://stackoverflow.com/questions/66634843/yamlexception-bad-indentation-of-a-mapping-entry/66635426?utm_source=chatgpt.com)
+
+  SonarQubeSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: SonarQube SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref SonarQubePort
+          ToPort: !Ref SonarQubePort
+          CidrIp: !Ref SSHLocation
+
+  NexusSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Nexus SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref NexusPort
+          ToPort: !Ref NexusPort
+          CidrIp: !Ref SSHLocation
+
+  JenkinsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId                                       #  [oai_citation_attribution:17‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cloudformation-supplied-parameter-types.html?utm_source=chatgpt.com)
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnet1CIDR
+      SecurityGroupIds: [!Ref JenkinsSG]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          amazon-linux-extras install java-openjdk11 -y
+          wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+          rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+          yum install jenkins -y
+          systemctl enable jenkins
+          systemctl start jenkins                              #  [oai_citation_attribution:18‡Stack Overflow](https://stackoverflow.com/questions/66634843/yamlexception-bad-indentation-of-a-mapping-entry/66635426?utm_source=chatgpt.com)
+
+  SonarQubeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnet2CIDR
+      SecurityGroupIds: [!Ref SonarQubeSG]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          amazon-linux-extras install java-openjdk11 -y
+          yum install unzip wget -y
+          useradd sonar
+          cd /opt
+          wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-10.2.1.78527.zip
+          unzip sonarqube-10.2.1.78527.zip
+          mv sonarqube-* sonarqube
+          chown -R sonar:sonar /opt/sonarqube
+          echo 'runuser -l sonar -c "/opt/sonarqube/sonarqube/bin/linux-x86-64/sonar.sh start"' >> /etc/rc.d/rc.local
+          chmod +x /etc/rc.d/rc.local
+          /etc/rc.d/rc.local                                   #  [oai_citation_attribution:19‡Stack Overflow](https://stackoverflow.com/questions/66634843/yamlexception-bad-indentation-of-a-mapping-entry/66635426?utm_source=chatgpt.com)
+
+  NexusInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnet3CIDR
+      SecurityGroupIds: [!Ref NexusSG]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install java-1.8.0-openjdk -y
+          useradd nexus
+          cd /opt
+          wget https://download.sonatype.com/nexus/3/latest-unix.tar.gz
+          tar zxvf latest-unix.tar.gz
+          mv nexus-* nexus
+          chown -R nexus:nexus nexus
+          echo 'run_as_user="nexus"' > nexus/bin/nexus.rc
+          ln -s /opt/nexus/bin/nexus /etc/init.d/nexus
+          systemctl enable nexus
+          systemctl start nexus                              #  [oai_citation_attribution:20‡Stack Overflow](https://stackoverflow.com/questions/66634843/yamlexception-bad-indentation-of-a-mapping-entry/66635426?utm_source=chatgpt.com)
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  PublicSubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
+
+  JenkinsPublicIP:
+    Description: Jenkins Public IP
+    Value: !GetAtt JenkinsInstance.PublicIp                    #  [oai_citation_attribution:21‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/intrinsic-function-reference-getatt.html?utm_source=chatgpt.com)
+
+  SonarQubePublicIP:
+    Description: SonarQube Public IP
+    Value: !GetAtt SonarQubeInstance.PublicIp
+
+  NexusPublicIP:
+    Description: Nexus Public IP
+    Value: !GetAtt NexusInstance.PublicIp
