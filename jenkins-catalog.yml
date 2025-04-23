@@ -1,0 +1,268 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploy Jenkins, SonarQube, and Nexus on private EC2 instances in a VPC with NAT and security configuration
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Description: The CIDR block for the VPC.
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[1-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /21 to /28 in 10.x.x.x/ format.
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Description: CIDR block for Private Subnet 1
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /23 to /28 in 10.x.x.x/ format.
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Description: CIDR block for Private Subnet 2
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /23 to /28 in 10.x.x.x/ format.
+
+  PrivateSubnet3CIDR:
+    Type: String
+    Description: CIDR block for Private Subnet 3
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /23 to /28 in 10.x.x.x/ format.
+
+Mappings:
+  RegionMap:
+    eu-west-1:
+      AMI: ami-0c02fb55956c7d316  # Amazon Linux 2 AMI for EU-West-1 (Ireland)
+
+Resources:
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: "IMS-Prod-AD-VPC"
+
+  # Private Subnets
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      AvailabilityZone: !Select [ 0, !GetAZs "eu-west-1" ]
+      Tags:
+        - Key: Name
+          Value: "IMS-Prod-AD-PrivateSubnet-01"
+      MapPublicIpOnLaunch: false  # Ensure it does not automatically assign public IPs
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      AvailabilityZone: !Select [ 1, !GetAZs "eu-west-1" ]
+      Tags:
+        - Key: Name
+          Value: "IMS-Prod-AD-PrivateSubnet-02"
+      MapPublicIpOnLaunch: false
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet3CIDR
+      AvailabilityZone: !Select [ 2, !GetAZs "eu-west-1" ]
+      Tags:
+        - Key: Name
+          Value: "IMS-Prod-AD-PrivateSubnet-03"
+      MapPublicIpOnLaunch: false
+
+  # Route Tables for Private Subnets
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: "IMS-Prod-AD-PrivateRoute"
+
+  AssociatePrivateRouteTable1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  AssociatePrivateRouteTable2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  AssociatePrivateRouteTable3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet3
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Elastic IP for NAT Gateway
+  NatElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # NAT Gateway
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      AllocationId: !GetAtt NatElasticIP.AllocationId
+      Tags:
+        - Key: Name
+          Value: "IMS-Prod-AD-NATGateway-01"
+
+  # Route for Private Subnets to route traffic to NAT Gateway
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"  # Routes to the internet via the NAT Gateway
+      NatGatewayId: !Ref NatGateway
+
+  # Security Groups for Jenkins, SonarQube, Nexus
+  JenkinsSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Jenkins
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: JenkinsSG
+
+  SonarQubeSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for SonarQube
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 9000
+          ToPort: 9000
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: SonarQubeSG
+
+  NexusSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Nexus
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8081
+          ToPort: 8081
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: NexusSG
+
+  # EC2 Instances for Jenkins, SonarQube, Nexus
+  JenkinsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      SubnetId: !Ref PrivateSubnet1
+      ImageId: !FindInMap [RegionMap, eu-west-1, AMI]
+      SecurityGroupIds: [!Ref JenkinsSG]
+      Tags:
+        - Key: Name
+          Value: Jenkins
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          amazon-linux-extras install java-openjdk11 -y
+          wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+          rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+          yum install jenkins -y
+          systemctl enable jenkins
+          systemctl start jenkins
+
+  SonarQubeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.large
+      SubnetId: !Ref PrivateSubnet2
+      ImageId: !FindInMap [RegionMap, eu-west-1, AMI]
+      SecurityGroupIds: [!Ref SonarQubeSG]
+      Tags:
+        - Key: Name
+          Value: SonarQube
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          amazon-linux-extras install java-openjdk11 -y
+          yum install unzip wget -y
+          useradd sonar
+          mkdir /opt/sonarqube
+          cd /opt/sonarqube
+          wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-10.2.1.78527.zip
+          unzip sonarqube-10.2.1.78527.zip
+          mv sonarqube-10.2.1.78527 sonarqube
+          chown -R sonar:sonar /opt/sonarqube
+          echo 'runuser -l sonar -c "/opt/sonarqube/sonarqube/bin/linux-x86-64/sonar.sh start"' >> /etc/rc.d/rc.local
+          chmod +x /etc/rc.d/rc.local
+          /etc/rc.d/rc.local
+
+  NexusInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      SubnetId: !Ref PrivateSubnet3
+      ImageId: !FindInMap [RegionMap, eu-west-1, AMI]
+      SecurityGroupIds: [!Ref NexusSG]
+      Tags:
+        - Key: Name
+          Value: Nexus
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install java-1.8.0-openjdk -y
+          useradd nexus
+          cd /opt
+          wget https://download.sonatype.com/nexus/3/latest-unix.tar.gz
+          tar -zxvf latest-unix.tar.gz
+          mv nexus-* nexus
+          chown -R nexus:nexus nexus
+          echo 'run_as_user="nexus"' > /opt/nexus/bin/nexus.rc
+          ln -s /opt/nexus/bin/nexus /etc/init.d/nexus
+          systemctl enable nexus
+          systemctl start nexus
+
+Outputs:
+  VpcId:
+    Description: "VPC ID"
+    Value: !Ref VPC
+
+  PrivateSubnet1Id:
+    Description: "Private Subnet 1 ID"
+    Value: !Ref PrivateSubnet1
+
+  PrivateSubnet2Id:
+    Description: "Private Subnet 2 ID"
+    Value: !Ref PrivateSubnet2
+
+  PrivateSubnet3Id:
+    Description: "Private Subnet 3 ID"
+    Value: !Ref PrivateSubnet3
+
+  NatGatewayId:
+    Description: "NAT Gateway ID"
+    Value: !Ref NatGateway
