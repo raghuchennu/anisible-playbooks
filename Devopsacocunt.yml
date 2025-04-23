@@ -1,0 +1,314 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IMS Tesco – DevOps tools on private EC2 instances with NAT and security
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Default: 10.200.0.0/21
+    Description: VPC CIDR (10.x.x.x/21–/28)
+
+  PublicSubnetCIDR:
+    Type: String
+    Default: 10.200.0.0/24
+    Description: Public Subnet CIDR (10.x.x.x/23–/28)
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: 10.200.1.0/24
+    Description: Private Subnet 1 CIDR (10.x.x.x/23–/28)
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: 10.200.2.0/24
+    Description: Private Subnet 2 CIDR (10.x.x.x/23–/28)
+
+  PrivateSubnet3CIDR:
+    Type: String
+    Default: 10.200.3.0/24
+    Description: Private Subnet 3 CIDR (10.x.x.x/23–/28)
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 KeyPair for SSH access  [oai_citation_attribution:0‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-instance.html?utm_source=chatgpt.com)
+
+  SSHLocation:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR range for SSH access  [oai_citation_attribution:1‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-networkinterface.html?utm_source=chatgpt.com)
+
+  JenkinsPort:
+    Type: Number
+    Default: 8080
+    Description: Port for Jenkins UI  [oai_citation_attribution:2‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-instance.html?utm_source=chatgpt.com)
+
+  SonarQubePort:
+    Type: Number
+    Default: 9000
+    Description: Port for SonarQube UI  [oai_citation_attribution:3‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-instance.html?utm_source=chatgpt.com)
+
+  NexusPort:
+    Type: Number
+    Default: 8081
+    Description: Port for Nexus UI  [oai_citation_attribution:4‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-instance.html?utm_source=chatgpt.com)
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: ims-tesco-vpc  [oai_citation_attribution:5‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-subnet.html?utm_source=chatgpt.com)
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: ims-tesco-igw  [oai_citation_attribution:6‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-eipassociation.html?utm_source=chatgpt.com)
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ims-tesco-public-rt 
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway  [oai_citation_attribution:7‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-instance.html?utm_source=chatgpt.com)
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCIDR
+      AvailabilityZone: !Select [0, !GetAZs '']                  # dynamic AZ selection 
+      MapPublicIpOnLaunch: true                                 # for NAT EIP  [oai_citation_attribution:8‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-subnet.html?utm_source=chatgpt.com)
+      Tags:
+        - Key: Name
+          Value: ims-tesco-public-1
+
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc                                               # for NAT  [oai_citation_attribution:9‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ec2-instance-networkinterface.html?utm_source=chatgpt.com)
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      AllocationId: !GetAtt NatEIP.AllocationId                 # uses EIP  [oai_citation_attribution:10‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ec2-instance-networkinterface.html?utm_source=chatgpt.com)
+      Tags:
+        - Key: Name
+          Value: ims-tesco-nat
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ims-tesco-private-rt
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway  [oai_citation_attribution:11‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-instance.html?utm_source=chatgpt.com)
+
+  # Subnet definitions
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: ims-tesco-private-1 
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: ims-tesco-private-2
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet3CIDR
+      AvailabilityZone: !Select [2, !GetAZs '']
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: ims-tesco-private-3
+
+  # Route associations
+  SubnetRouteTableAssociationPublic:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetRouteTableAssociationPriv1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  SubnetRouteTableAssociationPriv2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  SubnetRouteTableAssociationPriv3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet3
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Security groups
+  JenkinsSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Jenkins SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref JenkinsPort
+          ToPort: !Ref JenkinsPort
+          CidrIp: !Ref SSHLocation  [oai_citation_attribution:12‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-networkinterface.html?utm_source=chatgpt.com)
+
+  SonarQubeSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: SonarQube SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref SonarQubePort
+          ToPort: !Ref SonarQubePort
+          CidrIp: !Ref SSHLocation
+
+  NexusSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Nexus SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref NexusPort
+          ToPort: !Ref NexusPort
+          CidrIp: !Ref SSHLocation
+
+  # EC2 Instances using AMI ami-0ce8c2b29fcc8a346 and t2.micro
+  JenkinsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0ce8c2b29fcc8a346                           # user-specified AMI
+      InstanceType: t2.micro                                  # user-specified instance type  [oai_citation_attribution:13‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-instance.html?utm_source=chatgpt.com)
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds: [!Ref JenkinsSG]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          amazon-linux-extras install java-openjdk11 -y
+          wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+          rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+          yum install jenkins -y
+          systemctl enable jenkins
+          systemctl start jenkins  [oai_citation_attribution:14‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-instance.html?utm_source=chatgpt.com)
+
+  SonarQubeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0ce8c2b29fcc8a346
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnet2
+      SecurityGroupIds: [!Ref SonarQubeSG]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          amazon-linux-extras install java-openjdk11 -y
+          yum install unzip wget -y
+          useradd sonar
+          cd /opt
+          wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-10.2.1.78527.zip
+          unzip sonarqube-10.2.1.78527.zip
+          mv sonarqube-* sonarqube
+          chown -R sonar:sonar /opt/sonarqube
+          echo 'runuser -l sonar -c "/opt/sonarqube/sonarqube/bin/linux-x86-64/sonar.sh start"' >> /etc/rc.d/rc.local
+          chmod +x /etc/rc.d/rc.local
+          /etc/rc.d/rc.local  [oai_citation_attribution:15‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-instance.html?utm_source=chatgpt.com)
+
+  NexusInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0ce8c2b29fcc8a346
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnet3
+      SecurityGroupIds: [!Ref NexusSG]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install java-1.8.0-openjdk -y
+          useradd nexus
+          cd /opt
+          wget https://download.sonatype.com/nexus/3/latest-unix.tar.gz
+          tar zxvf latest-unix.tar.gz
+          mv nexus-* nexus
+          chown -R nexus:nexus nexus
+          echo 'run_as_user="nexus"' > nexus/bin/nexus.rc
+          ln -s /opt/nexus/bin/nexus /etc/init.d/nexus
+          systemctl enable nexus
+          systemctl start nexus  [oai_citation_attribution:16‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ec2-instance-networkinterface.html?utm_source=chatgpt.com)
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  PublicSubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
+
+  JenkinsPublicIP:
+    Description: Jenkins Public IP
+    Value: !GetAtt JenkinsInstance.PublicIp
+
+  SonarQubePublicIP:
+    Description: SonarQube Public IP
+    Value: !GetAtt SonarQubeInstance.PublicIp
+
+  NexusPublicIP:
+    Description: Nexus Public IP
+    Value: !GetAtt NexusInstance.PublicIp
