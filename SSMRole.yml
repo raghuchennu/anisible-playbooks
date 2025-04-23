@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Fully parameterized IAM Role for EC2 with SSM Managed Policy
+
+Parameters:
+  RoleName:
+    Type: String
+    Description: IAM Role name for EC2 SSM access
+
+Resources:
+  SSMServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+Outputs:
+  RoleName:
+    Description: Name of the IAM Role
+    Value: !Ref SSMServerRole
+
+  RoleArn:
+    Description: ARN of the IAM Role
+    Value: !GetAtt SSMServerRole.Arn
