@@ -1,0 +1,241 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Description: The CIDR block for the VPC.
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[1-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /21 to /28 in 10.x.x.x/ format.
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Description: CIDR block for Private Subnet
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /23 to /28 in 10.x.x.x/ format.
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Description: CIDR block for Private Subnet 2
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /23 to /28 in 10.x.x.x/ format.
+
+  PrivateSubnet3CIDR:
+    Type: String
+    Description: CIDR block for Private Subnet 3
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /23 to /28 in 10.x.x.x/ format.
+
+  PublicSubnet1CIDR:
+    Type: String
+    Description: CIDR block for Public Subnet 1
+    AllowedPattern: '^10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}/(2[3-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /23 to /28 in 10.x.x.x/ format.
+
+  InstanceType:
+    Type: String
+    Description: EC2 instance type for all 3 instances
+
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI ID for launching the EC2 instance
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-VPC"
+
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-InternetGateway-01"
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1CIDR
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-PublicSubnet-01"
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-PrivateSubnet-01"
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-PrivateSubnet-02"
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet3CIDR
+      AvailabilityZone: !Select [ 2, !GetAZs "" ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-PrivateSubnet-03"
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-PrivateRoute"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-PublicRoute"
+
+  AssociatePublicRouteTable1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  AssociatePrivateRouteTable1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  AssociatePrivateRouteTable2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  AssociatePrivateRouteTable3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet3
+      RouteTableId: !Ref PrivateRouteTable
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties: {}
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      SubnetId: !Ref PrivateSubnet1
+      ConnectivityType: public
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-NATGateway-01"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGateway
+
+  DefaultSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Restricted security group - No ingress by default
+      GroupName: IMS-Sandbox-ADControllerSecurityGroup
+      VpcId: !Ref VPC
+      SecurityGroupIngress: []
+      Tags:
+        - Key: Name
+          Value: "AD Controller Security Group"
+
+  EC2Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PrivateSubnet1
+      ImageId: !Ref ImageId
+      SecurityGroupIds:
+        - !Ref DefaultSG
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-Instance-01"
+
+  EC2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PrivateSubnet2
+      ImageId: !Ref ImageId
+      SecurityGroupIds:
+        - !Ref DefaultSG
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-Instance-02"
+
+  EC2Instance3:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PrivateSubnet3
+      ImageId: !Ref ImageId
+      SecurityGroupIds:
+        - !Ref DefaultSG
+      Tags:
+        - Key: Name
+          Value: "IMS-Sandbox-AD-Instance-03"
+
+Outputs:
+  VpcId:
+    Description: "VPC ID"
+    Value: !Ref VPC
+
+  PrivateSubnet1Id:
+    Description: "Private Subnet 1 ID"
+    Value: !Ref PrivateSubnet1
+
+  PrivateSubnet2Id:
+    Description: "Private Subnet 2 ID"
+    Value: !Ref PrivateSubnet2
+
+  PrivateSubnet3Id:
+    Description: "Private Subnet 3 ID"
+    Value: !Ref PrivateSubnet3
