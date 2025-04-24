@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Description: VPC CIDR block (10.xx.x.x/21 to /28)
+    AllowedPattern: '^10\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}/(2[1-8])$'
+    ConstraintDescription: Must be a valid CIDR block from /21 to /28.
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Description: CIDR block for Jenkins subnet
+    AllowedPattern: '^10\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}/(2[3-8])$'
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Description: CIDR block for SonarQube subnet
+    AllowedPattern: '^10\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}/(2[3-8])$'
+
+  PrivateSubnet3CIDR:
+    Type: String
+    Description: CIDR block for Nexus subnet
+    AllowedPattern: '^10\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}/(2[3-8])$'
+
+  PublicSubnetCIDR:
+    Type: String
+    Description: CIDR block for public subnet
+    AllowedPattern: '^10\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}/(2[3-8])$'
+
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI ID to launch instances
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 Instance Type for Jenkins, SonarQube, and Nexus
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: DevOps-VPC
+
+  IGW:
+    Type: AWS::EC2::InternetGateway
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCIDR
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet3CIDR
+      AvailabilityZone: !Select [ 2, !GetAZs "" ]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+
+  AssociatePublicSubnet:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  AssociatePrivateSubnet1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  AssociatePrivateSubnet2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  AssociatePrivateSubnet3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet3
+      RouteTableId: !Ref PrivateRouteTable
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGateway
+
+  InstanceSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Allow all internal traffic (adjust as needed)
+      SecurityGroupIngress:
+        - IpProtocol: "-1"
+          CidrIp: !Ref VpcCIDR
+
+  JenkinsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PrivateSubnet1
+      ImageId: !Ref ImageId
+      SecurityGroupIds:
+        - !Ref InstanceSG
+      Tags:
+        - Key: Name
+          Value: Jenkins
+
+  SonarQubeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PrivateSubnet2
+      ImageId: !Ref ImageId
+      SecurityGroupIds:
+        - !Ref InstanceSG
+      Tags:
+        - Key: Name
+          Value: SonarQube
+
+  NexusInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PrivateSubnet3
+      ImageId: !Ref ImageId
+      SecurityGroupIds:
+        - !Ref InstanceSG
+      Tags:
+        - Key: Name
+          Value: Nexus
+
+Outputs:
+  VpcId:
+    Value: !Ref VPC
+  JenkinsSubnet:
+    Value: !Ref PrivateSubnet1
+  SonarQubeSubnet:
+    Value: !Ref PrivateSubnet2
+  NexusSubnet:
+    Value: !Ref PrivateSubnet3
