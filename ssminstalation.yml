@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Automated creation of a Golden AMI with SSM agent using EC2 Image Builder.
+  Includes role, component, recipe, infra config, and image pipeline.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Name of the environment (e.g., dev, prod)
+
+  BaseAMI:
+    Type: String
+    Description: Base OS AMI ID (e.g., Amazon Linux 2)
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet ID where the image will be built
+
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID for networking
+
+Resources:
+
+  ImageBuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "ImageBuilderRole-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+      Tags:
+        - Key: Name
+          Value: !Sub "ImageBuilderRole-${EnvironmentName}"
+
+  ImageBuilderProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "ImageBuilderProfile-${EnvironmentName}"
+      Roles:
+        - !Ref ImageBuilderRole
+
+  SSMInstallComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: !Sub "SSMInstall-${EnvironmentName}"
+      Platform: Linux
+      Version: 1.0.0
+      Data: |
+        name: InstallSSMAgent
+        description: Install SSM agent
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallSSM
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - yum install -y amazon-ssm-agent
+                    - systemctl enable amazon-ssm-agent
+                    - systemctl start amazon-ssm-agent
+
+  GoldenImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: !Sub "GoldenRecipe-${EnvironmentName}"
+      Version: 1.0.0
+      ParentImage: !Ref BaseAMI
+      Components:
+        - ComponentArn: !Ref SSMInstallComponent
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  ImageInfraConfig:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: !Sub "InfraConfig-${EnvironmentName}"
+      InstanceProfileName: !Ref ImageBuilderProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      TerminateInstanceOnFailure: true
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  ImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: !Sub "GoldenPipeline-${EnvironmentName}"
+      ImageRecipeArn: !Ref GoldenImageRecipe
+      InfrastructureConfigurationArn: !Ref ImageInfraConfig
+      Status: ENABLED
+      Tags:
+        Environment: !Ref EnvironmentName
+
+Outputs:
+  PipelineName:
+    Description: Name of the Image Builder pipeline
+    Value: !Ref ImagePipeline
+
+  RecipeName:
+    Description: Name of the Image Recipe
+    Value: !Ref GoldenImageRecipe
