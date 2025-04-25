@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Windows Golden AMI Pipeline using EC2 Image Builder with PowerShell Component
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Name of the environment (e.g., dev, prod)
+  
+  BaseAMI:
+    Type: String
+    Description: Base AMI ID for Windows (e.g., ami-xxxx for Windows Server 2019)
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet ID for infrastructure config
+
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID for Image Builder instance
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 KeyPair name for accessing the instance
+
+Resources:
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "golden-ami-logs-${EnvironmentName}-${AWS::AccountId}"
+
+  ImageBuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ImageBuilderRole
+      Path: "/"
+
+  PowerShellComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: !Sub "Install-PowerShell-${EnvironmentName}"
+      Platform: Windows
+      Version: 1.0.0
+      Description: Installs PowerShell 7 and RSAT tools
+      ChangeDescription: Initial version
+      Data: |
+        name: InstallPowerShellAndTools
+        description: Install PowerShell 7 and RSAT
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallPowerShell
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - Invoke-WebRequest -Uri "https://github.com/PowerShell/PowerShell/releases/download/v7.4.0/PowerShell-7.4.0-win-x64.msi" -OutFile "C:\powershell.msi"
+                    - Start-Process msiexec.exe -ArgumentList '/i C:\powershell.msi /quiet' -Wait
+                    - Install-WindowsFeature -Name RSAT-AD-PowerShell
+
+  ImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: !Sub "Golden-Windows-Recipe-${EnvironmentName}"
+      Version: 1.0.0
+      ParentImage: !Ref BaseAMI
+      Components:
+        - ComponentArn: !Ref PowerShellComponent
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp2
+
+  InfrastructureConfiguration:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: !Sub "GoldenWindowsInfra-${EnvironmentName}"
+      InstanceProfileName: !Ref InstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      TerminateInstanceOnFailure: true
+      KeyPair: !Ref KeyName
+      Logging:
+        S3Logs:
+          S3BucketName: !Ref S3Bucket
+
+  ImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: !Sub "GoldenWindowsPipeline-${EnvironmentName}"
+      ImageRecipeArn: !Ref ImageRecipe
+      InfrastructureConfigurationArn: !Ref InfrastructureConfiguration
+      Schedule:
+        PipelineExecutionStartCondition: EXPRESSION_MATCH_AND_DEPENDENCY_UPDATES_AVAILABLE
+        ScheduleExpression: rate(1 day)
+      Status: ENABLED
+
+Outputs:
+  AMIPipelineName:
+    Description: Name of the Golden AMI Pipeline
+    Value: !Ref ImagePipeline
