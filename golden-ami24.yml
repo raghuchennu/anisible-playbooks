@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Automate the creation of a Golden AMI with EC2 Image Builder and PowerShell components for Windows instances
+
+Parameters:
+  BaseAMI:
+    Type: String
+    Description: The Base AMI ID to use for the Windows instance (e.g., Amazon Windows Server)
+    
+  EnvironmentName:
+    Type: String
+    Description: The environment name (e.g., dev, prod)
+    
+  SubnetId:
+    Type: String
+    Description: The subnet ID for the EC2 instance to be created
+    
+  SecurityGroupId:
+    Type: String
+    Description: The security group ID to associate with the EC2 instance
+
+Resources:
+
+  # EC2 Role for Image Builder to execute the pipeline
+  EC2ImageBuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: imagebuilder.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+  # EC2 Image Builder instance profile
+  EC2ImageBuilderInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: EC2ImageBuilderInstanceProfile
+      Roles:
+        - !Ref EC2ImageBuilderRole
+
+  # EC2 Image Builder Component for installing PowerShell
+  PowerShellComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: InstallPowerShell
+      Platform: Windows
+      Version: '1.0.0'
+      ChangeDescription: 'Install PowerShell on Windows Server'
+      Tags:
+        Environment: !Ref EnvironmentName
+      Data: |
+        name: InstallPowerShell
+        version: '1.0.0'
+        description: 'Install PowerShell for automation'
+        phases:
+          build:
+            commands:
+              - powershell Install-WindowsFeature PowerShell-ISE
+              - powershell Install-WindowsFeature RSAT
+
+  # EC2 Image Builder Image Recipe
+  WindowsImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: WindowsGoldenImageRecipe
+      Version: '1.0.0'
+      ParentImage: !Ref BaseAMI
+      Components:
+        - ComponentArn: !Ref PowerShellComponent
+      InfrastructureConfiguration:
+        InstanceTypes:
+          - t2.micro
+        SubnetId: !Ref SubnetId
+        SecurityGroupIds:
+          - !Ref SecurityGroupId
+        InstanceProfileName: !Ref EC2ImageBuilderInstanceProfile
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  # EC2 Image Builder Pipeline
+  WindowsImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: WindowsImagePipeline
+      ImageRecipeArn: !Ref WindowsImageRecipe
+      InfrastructureConfigurationArn: !Ref EC2ImageBuilderInstanceProfile
+      Status: ENABLED
+      Schedule:
+        PipelineExecutionStartCondition: RESTART_ON_FAILURE
+        PipelineExecutionTrigger: DAILY
+
+  # S3 Bucket for Image Builder logs
+  ImageBuilderLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'image-builder-logs-${AWS::AccountId}-${EnvironmentName}'
+      VersioningConfiguration:
+        Status: Enabled
+
+  # EC2 Instance for Image Builder to perform the build
+  ImageBuilderInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref BaseAMI
+      InstanceType: t2.micro
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref EC2ImageBuilderInstanceProfile
+      Tags:
+        Name: ImageBuilderInstance
+        Environment: !Ref EnvironmentName
+
+Outputs:
+  ImageBuilderRoleArn:
+    Description: EC2 Image Builder Role ARN
+    Value: !GetAtt EC2ImageBuilderRole.Arn
+
+  WindowsImagePipelineArn:
+    Description: Windows Image Pipeline ARN
+    Value: !Ref WindowsImagePipeline
+
+  ImageBuilderLogsBucketName:
+    Description: S3 Bucket for storing image builder logs
+    Value: !Ref ImageBuilderLogsBucket
