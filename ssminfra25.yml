@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 Image Builder pipeline to create a Golden AMI with SSM Agent
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Name of the environment (e.g., dev, prod)
+  BaseAMI:
+    Type: String
+    Description: Base AMI ID (e.g., Amazon Linux 2)
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet where the build EC2 will be launched
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group for the build EC2
+
+Resources:
+
+  # Step 1: IAM Role for EC2 Image Builder
+  ImageBuilderInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-ImageBuilder-Role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ImageBuilderInstanceRole
+
+  # Step 2: Image Recipe
+  ImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: !Sub "${EnvironmentName}-golden-recipe"
+      Version: 1.0.0
+      ParentImage: !Ref BaseAMI
+      Components:
+        - ComponentArn: arn:aws:imagebuilder:eu-west-1:aws:component/amazon-cloudwatch-agent-linux/1.0.0
+        - ComponentArn: arn:aws:imagebuilder:eu-west-1:aws:component/aws-cli-version-2-linux/1.0.0
+        - ComponentArn: arn:aws:imagebuilder:eu-west-1:aws:component/ssm-agent-linux/1.0.0
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp2
+
+  # Step 3: Infrastructure Config
+  InfrastructureConfig:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: !Sub "${EnvironmentName}-infra-config"
+      InstanceTypes: [ "t3.micro" ]
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [ !Ref SecurityGroupId ]
+      InstanceProfileName: !Ref InstanceProfile
+      TerminateInstanceOnFailure: true
+
+  # Step 4: Image Pipeline
+  ImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: !Sub "${EnvironmentName}-golden-ami-pipeline"
+      ImageRecipeArn: !Ref ImageRecipe
+      InfrastructureConfigurationArn: !Ref InfrastructureConfig
+      Schedule:
+        ScheduleExpression: "cron(0 0 * * ? *)"  # Daily midnight run
+        PipelineExecutionStartCondition: EXPRESSION_MATCH_ONLY
+      Status: ENABLED
+
+Outputs:
+  AMIPipeline:
+    Description: Name of the Image Builder Pipeline
+    Value: !Ref ImagePipeline
