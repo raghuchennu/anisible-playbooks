@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Windows Golden AMI Pipeline using EC2 Image Builder with PowerShell Component and SSM Agent Installation
+
+Parameters:
+  BaseAMI:
+    Type: String
+    Description: Base AMI ID for Windows (e.g., ami-xxxx for Windows Server 2019)
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet ID for infrastructure config
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 KeyPair name for accessing the instance
+
+Resources:
+  
+  # IAM Role for Image Builder
+  ImageBuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: imagebuilder.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      Path: "/"
+
+  # Instance Profile for Image Builder Role
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ImageBuilderRole
+      Path: "/"
+
+  # PowerShell Component (including SSM Agent installation script)
+  PowerShellComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: Install-PowerShell-${AWS::Region}
+      Platform: Windows
+      Version: 1.0.0
+      Description: Installs PowerShell 7, RSAT tools, and SSM Agent
+      ChangeDescription: Initial version
+      Data: |
+        name: InstallPowerShellAndTools
+        description: Install PowerShell 7, RSAT, and SSM Agent
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallPowerShell
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - Invoke-WebRequest -Uri "https://github.com/PowerShell/PowerShell/releases/download/v7.4.0/PowerShell-7.4.0-win-x64.msi" -OutFile "C:\powershell.msi"
+                    - Start-Process msiexec.exe -ArgumentList '/i C:\powershell.msi /quiet' -Wait
+                    - Install-WindowsFeature -Name RSAT-AD-PowerShell
+              - name: InstallSSMAgent
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - [System.Net.ServicePointManager]::SecurityProtocol = 'TLS12'
+                    - $progressPreference = 'silentlyContinue'
+                    - Invoke-WebRequest `
+                        https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/windows_amd64/AmazonSSMAgentSetup.exe `
+                        -OutFile $env:USERPROFILE\Desktop\SSMAgent_latest.exe
+                    - Start-Process `
+                        -FilePath $env:USERPROFILE\Desktop\SSMAgent_latest.exe `
+                        -ArgumentList "/S" `
+                        -Wait
+
+  # Image Recipe that uses the PowerShell Component
+  ImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: Golden-Windows-Recipe-${AWS::Region}
+      Version: 1.0.0
+      ParentImage: !Ref BaseAMI
+      Components:
+        - ComponentArn: !Ref PowerShellComponent
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp2
+
+  # Infrastructure Configuration for Image Builder
+  InfrastructureConfiguration:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: Golden-Windows-Infrastructure-${AWS::Region}
+      InstanceProfileName: !Ref InstanceProfile
+      SubnetId: !Ref SubnetId
+      KeyPair: !Ref KeyName
+      TerminateInstanceOnFailure: true
+      Logging:
+        S3Logs:
+          S3BucketName: !Sub "golden-ami-logs-${AWS::AccountId}"
+
+  # Image Pipeline
+  ImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: Golden-Windows-Pipeline-${AWS::Region}
+      ImageRecipeArn: !Ref ImageRecipe
+      InfrastructureConfigurationArn: !Ref InfrastructureConfiguration
+      Schedule:
+        PipelineExecutionStartCondition: EXPRESSION_MATCH_AND_DEPENDENCY_UPDATES_AVAILABLE
+        ScheduleExpression: rate(90 days)  # Trigger every 3 months
+      Status: ENABLED
+
+Outputs:
+  AMIPipelineName:
+    Description: Name of the Golden AMI Pipeline
+    Value: !Ref ImagePipeline
