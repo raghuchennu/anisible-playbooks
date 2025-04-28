@@ -203,7 +203,12 @@ Resources:
           CidrIp: !Ref SSHLocation  [oai_citation_attribution:12‡AWS Documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-networkinterface.html?utm_source=chatgpt.com)
 
   SonarQubeSG:
-    Type: AWS::EC2::SecurityGroup
+    Type: AWS::EC2::Security
+
+
+
+
+Group
     Properties:
       VpcId: !Ref VPC
       GroupDescription: SonarQube SG
@@ -312,3 +317,22 @@ Outputs:
   NexusPublicIP:
     Description: Nexus Public IP
     Value: !GetAtt NexusInstance.PublicIp
+
+
+
+
+
+
+Schedule:
+  PipelineExecutionStartCondition: EXPRESSION_MATCH_AND_DEPENDENCY_UPDATES_AVAILABLE
+  ScheduleExpression: cron(0 0 1 1,4,7,10 ? *)
+  Status: ENABLED
+
+
+
+
+
+
+
+
+
