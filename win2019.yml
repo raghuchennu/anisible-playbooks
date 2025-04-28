@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Golden AMI Pipeline - Windows (Fully Automated)
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    Description: EC2 instance type for building the AMI
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID for the Image Builder infrastructure
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet ID for the Image Builder infrastructure
+
+Resources:
+
+  GoldenImageBuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: goldenimagebuilderrole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - imagebuilder.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+
+  GoldenImageBuilderInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: goldenimagebuilderinstanceprofile
+      Roles:
+        - !Ref GoldenImageBuilderRole
+
+  GoldenImageBuilderSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Image Builder
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: golden-image-builder-sg
+
+  GoldenImageBuilderComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: golden-windows-customization
+      Platform: Windows
+      Version: 1.0.0
+      Description: Custom component to install PowerShell 7
+      Data: |
+        name: InstallPowerShell
+        description: Install PowerShell 7
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallPowerShell
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - Invoke-WebRequest -Uri "https://github.com/PowerShell/PowerShell/releases/download/v7.4.1/PowerShell-7.4.1-win-x64.msi" -OutFile "C:\pwsh.msi"
+                    - Start-Process msiexec.exe -Wait -ArgumentList '/i C:\pwsh.msi /quiet'
+                    - Remove-Item "C:\pwsh.msi"
+
+  GoldenImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: golden-windows-recipe
+      Version: 1.0.0
+      ParentImage: arn:aws:imagebuilder:us-west-1:aws:image/windows-server-2019-english-full-base-x86/x.x.x
+      Components:
+        - ComponentArn: !Ref GoldenImageBuilderComponent
+
+  GoldenInfrastructureConfiguration:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: golden-windows-infra
+      InstanceTypes:
+        - !Ref InstanceType
+      InstanceProfileName: !Ref GoldenImageBuilderInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref GoldenImageBuilderSecurityGroup
+      TerminateInstanceOnFailure: true
+
+  GoldenImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: golden-windows-pipeline
+      Description: Pipeline to create Windows Golden AMI
+      ImageRecipeArn: !Ref GoldenImageRecipe
+      InfrastructureConfigurationArn: !Ref GoldenInfrastructureConfiguration
+      Status: ENABLED
+      Schedule:
+        ScheduleExpression: rate(1 day)
+        PipelineExecutionStartCondition: EXPRESSION_MATCH_AND_DEPENDENCY_UPDATES_AVAILABLE
+
+Outputs:
+  GoldenImagePipelineOutput:
+    Description: Golden Windows Image Pipeline ARN
+    Value: !Ref GoldenImagePipeline
