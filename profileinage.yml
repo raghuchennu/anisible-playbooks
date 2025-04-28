@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Final Windows Golden AMI Pipeline using EC2 Image Builder with PowerShell Installation
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Name of the environment (e.g., dev, prod)
+
+  BaseAMI:
+    Type: String
+    Description: Base AMI ID for Windows (e.g., ami-xxxx for Windows Server)
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet ID for launching temporary build instance
+
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID for Image Builder instance
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to SSH/RDP into instances
+
+Resources:
+
+  GoldenImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "golden-ami-logs-${EnvironmentName}-${AWS::AccountId}-${AWS::Region}"
+
+  GoldenImageBuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-GoldenImageBuilderRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - ec2.amazonaws.com
+                - imagebuilder.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds
+
+  GoldenImageBuilderInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "${EnvironmentName}-GoldenImageBuilderProfile"
+      Roles:
+        - !Ref GoldenImageBuilderRole
+
+  PowerShellInstallComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: !Sub "InstallPowerShell7-${EnvironmentName}"
+      Platform: Windows
+      Version: 1.0.0
+      Description: Install PowerShell 7 and RSAT tools on Windows
+      ChangeDescription: Install latest PowerShell and RSAT
+      Data: |
+        name: InstallPowerShellAndRSAT
+        description: Install PowerShell 7.4.0 and RSAT AD Tools
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: DownloadPowerShell
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - Invoke-WebRequest -Uri "https://github.com/PowerShell/PowerShell/releases/download/v7.4.0/PowerShell-7.4.0-win-x64.msi" -OutFile "C:\Temp\powershell.msi"
+                    - Start-Process msiexec.exe -ArgumentList '/i C:\Temp\powershell.msi /quiet /norestart' -Wait
+                    - Install-WindowsFeature RSAT-AD-PowerShell
+
+  GoldenImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: !Sub "GoldenWindowsImageRecipe-${EnvironmentName}"
+      Version: 1.0.0
+      ParentImage: !Ref BaseAMI
+      Components:
+        - ComponentArn: !Ref PowerShellInstallComponent
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp2
+
+  GoldenInfrastructureConfiguration:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: !Sub "GoldenInfraConfig-${EnvironmentName}"
+      InstanceProfileName: !Ref GoldenImageBuilderInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      KeyPair: !Ref KeyName
+      TerminateInstanceOnFailure: true
+      Logging:
+        S3Logs:
+          S3BucketName: !Ref GoldenImageBucket
+
+  GoldenImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: !Sub "GoldenWindowsPipeline-${EnvironmentName}"
+      ImageRecipeArn: !Ref GoldenImageRecipe
+      InfrastructureConfigurationArn: !Ref GoldenInfrastructureConfiguration
+      Status: ENABLED
+      Schedule:
+        ScheduleExpression: rate(1 day)
+        PipelineExecutionStartCondition: EXPRESSION_MATCH_AND_DEPENDENCY_UPDATES_AVAILABLE
+
+Outputs:
+  PipelineName:
+    Description: Name of the Image Pipeline
+    Value: !Ref GoldenImagePipeline
+
+  BucketName:
+    Description: S3 Bucket where logs are stored
+    Value: !Ref GoldenImageBucket
