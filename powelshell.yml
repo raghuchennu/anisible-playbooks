@@ -18,7 +18,7 @@ Resources:
   ImageBuilderRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: ImageBuilderRole-${AWS::Region}
+      RoleName: ims-ImageBuilderRole
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -73,7 +73,7 @@ Resources:
   ImageRecipe:
     Type: AWS::ImageBuilder::ImageRecipe
     Properties:
-      Name: GoldenWindowsRecipe-${AWS::Region}
+      Name: ims-GoldenWindowsRecipe
       Version: 1.0.0
       ParentImage: !Ref BaseAMI
       Components:
@@ -87,7 +87,7 @@ Resources:
   InfrastructureConfiguration:
     Type: AWS::ImageBuilder::InfrastructureConfiguration
     Properties:
-      Name: GoldenWindowsInfra-${AWS::Region}
+      Name: ims-GoldenWindowsInfra
       InstanceProfileName: !Ref InstanceProfile
       SubnetId: !Ref SubnetId
       TerminateInstanceOnFailure: true
@@ -99,7 +99,7 @@ Resources:
   ImagePipeline:
     Type: AWS::ImageBuilder::ImagePipeline
     Properties:
-      Name: GoldenWindowsPipeline-${AWS::Region}
+      Name: ims-GoldenWindowsPipeline
       ImageRecipeArn: !Ref ImageRecipe
       InfrastructureConfigurationArn: !Ref InfrastructureConfiguration
       Schedule:
