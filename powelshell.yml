@@ -10,6 +10,10 @@ Parameters:
     Type: AWS::EC2::Subnet::Id
     Description: Subnet ID for infrastructure configuration
 
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID for the build instance
+
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: EC2 KeyPair name for accessing the instance
@@ -18,7 +22,7 @@ Resources:
   ImageBuilderRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: ims-ImageBuilderRole
+      RoleName: ImageBuilderRole-${AWS::Region}
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -73,7 +77,7 @@ Resources:
   ImageRecipe:
     Type: AWS::ImageBuilder::ImageRecipe
     Properties:
-      Name: ims-GoldenWindowsRecipe
+      Name: GoldenWindowsRecipe-${AWS::Region}
       Version: 1.0.0
       ParentImage: !Ref BaseAMI
       Components:
@@ -87,19 +91,18 @@ Resources:
   InfrastructureConfiguration:
     Type: AWS::ImageBuilder::InfrastructureConfiguration
     Properties:
-      Name: ims-GoldenWindowsInfra
+      Name: GoldenWindowsInfra-${AWS::Region}
       InstanceProfileName: !Ref InstanceProfile
       SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
       TerminateInstanceOnFailure: true
       KeyPair: !Ref KeyName
-      Logging:
-        S3Logs:
-          S3BucketName: !Sub "golden-ami-logs-${AWS::AccountId}"
 
   ImagePipeline:
     Type: AWS::ImageBuilder::ImagePipeline
     Properties:
-      Name: ims-GoldenWindowsPipeline
+      Name: GoldenWindowsPipeline-${AWS::Region}
       ImageRecipeArn: !Ref ImageRecipe
       InfrastructureConfigurationArn: !Ref InfrastructureConfiguration
       Schedule:
