@@ -1,0 +1,207 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Monitoring Setup with 2 VPCs, 6 EC2 Instances, SSM Documents for Datadog and Qualys"
+
+Parameters:
+  Vpc1CIDR:
+    Type: String
+    Description: CIDR block for VPC 1 (e.g. 10.0.0.0/24)
+  Vpc2CIDR:
+    Type: String
+    Description: CIDR block for VPC 2 (e.g. 10.1.0.0/24)
+  Subnet1CIDR:
+    Type: String
+    Description: CIDR for private subnet 1
+  Subnet2CIDR:
+    Type: String
+    Description: CIDR for private subnet 2
+  Subnet3CIDR:
+    Type: String
+    Description: CIDR for private subnet 3
+  Subnet4CIDR:
+    Type: String
+    Description: CIDR for private subnet 4
+  Subnet5CIDR:
+    Type: String
+    Description: CIDR for private subnet 5
+  Subnet6CIDR:
+    Type: String
+    Description: CIDR for private subnet 6
+  InstanceType:
+    Type: String
+    Default: t3.medium
+  WindowsAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI ID for Windows Server
+  DatadogAPIKey:
+    Type: String
+    NoEcho: true
+    Description: Your Datadog API Key
+
+Resources:
+
+  # VPCs
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref Vpc1CIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Monitoring-VPC1
+
+  VPC2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref Vpc2CIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Monitoring-VPC2
+
+  # Subnets for VPC1
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: !Ref Subnet1CIDR
+      AvailabilityZone: !Select [0, !GetAZs ""]
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: !Ref Subnet2CIDR
+      AvailabilityZone: !Select [1, !GetAZs ""]
+  Subnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: !Ref Subnet3CIDR
+      AvailabilityZone: !Select [2, !GetAZs ""]
+
+  # Subnets for VPC2
+  Subnet4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: !Ref Subnet4CIDR
+      AvailabilityZone: !Select [0, !GetAZs ""]
+  Subnet5:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: !Ref Subnet5CIDR
+      AvailabilityZone: !Select [1, !GetAZs ""]
+  Subnet6:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: !Ref Subnet6CIDR
+      AvailabilityZone: !Select [2, !GetAZs ""]
+
+  # Security Groups
+  SG1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security Group 1"
+      VpcId: !Ref VPC1
+
+  SG2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security Group 2"
+      VpcId: !Ref VPC2
+
+  SG3:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security Group 3"
+      VpcId: !Ref VPC2
+
+  # EC2 Instances
+  EC2Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref WindowsAmiId
+      SubnetId: !Ref Subnet1
+      SecurityGroupIds: [!Ref SG1]
+  EC2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref WindowsAmiId
+      SubnetId: !Ref Subnet2
+      SecurityGroupIds: [!Ref SG1]
+  EC2Instance3:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref WindowsAmiId
+      SubnetId: !Ref Subnet3
+      SecurityGroupIds: [!Ref SG1]
+
+  EC2Instance4:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref WindowsAmiId
+      SubnetId: !Ref Subnet4
+      SecurityGroupIds: [!Ref SG2]
+  EC2Instance5:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref WindowsAmiId
+      SubnetId: !Ref Subnet5
+      SecurityGroupIds: [!Ref SG2]
+  EC2Instance6:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref WindowsAmiId
+      SubnetId: !Ref Subnet6
+      SecurityGroupIds: [!Ref SG3]
+
+  # SSM Document for Datadog
+  DatadogSSMDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Content:
+        schemaVersion: "2.2"
+        description: "Install Datadog Agent on Windows"
+        mainSteps:
+          - action: aws:runPowerShellScript
+            name: installDatadog
+            inputs:
+              runCommand:
+                - |
+                  Start-Process -Wait msiexec -ArgumentList '/qn /i "https://s3.amazonaws.com/ddagent-windows-stable/datadog-agent-7-latest.amd64.msi" APIKEY="{{ DatadogAPIKey }}" SITE="datadoghq.com"'
+
+  # SSM Document for Qualys (placeholder script)
+  QualysSSMDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Content:
+        schemaVersion: "2.2"
+        description: "Install Qualys Agent on Windows"
+        mainSteps:
+          - action: aws:runPowerShellScript
+            name: installQualys
+            inputs:
+              runCommand:
+                - |
+                  Write-Output "Qualys installation script placeholder"
+
+Outputs:
+  VPC1ID:
+    Value: !Ref VPC1
+  VPC2ID:
+    Value: !Ref VPC2
+  DatadogDocumentName:
+    Value: !Ref DatadogSSMDocument
+  QualysDocumentName:
+    Value: !Ref QualysSSMDocument
