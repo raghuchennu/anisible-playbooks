@@ -1,0 +1,207 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Monitoring Account - 2 VPCs, 6 Private Subnets, 6 EC2s, 3 SGs, SSM Documents for Datadog & Qualys
+
+Parameters:
+  Vpc1CIDR:
+    Type: String
+    Description: CIDR block for VPC 1
+    AllowedPattern: '^10\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}/(2[1-8])$'
+    ConstraintDescription: Must be a valid CIDR between /21 and /28
+
+  Vpc2CIDR:
+    Type: String
+    Description: CIDR block for VPC 2
+    AllowedPattern: '^10\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}/(2[1-8])$'
+    ConstraintDescription: Must be a valid CIDR between /21 and /28
+
+  WindowsAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: Windows AMI ID
+
+  InstanceType:
+    Type: String
+    Description: EC2 instance type
+    Default: t3.medium
+
+  DatadogAPIKey:
+    Type: String
+    Description: Datadog API Key (from Datadog account)
+    NoEcho: true
+
+Resources:
+
+# VPCs
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref Vpc1CIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: Monitoring-VPC-1 }]
+
+  VPC2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref Vpc2CIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: Monitoring-VPC-2 }]
+
+# Subnets for VPC1
+  Subnet1A:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: '10.0.1.0/24'
+      Tags: [{ Key: Name, Value: Monitoring-Subnet1A }]
+
+  Subnet1B:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: '10.0.2.0/24'
+      Tags: [{ Key: Name, Value: Monitoring-Subnet1B }]
+
+  Subnet1C:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: '10.0.3.0/24'
+      Tags: [{ Key: Name, Value: Monitoring-Subnet1C }]
+
+# Subnets for VPC2
+  Subnet2A:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: '10.0.4.0/24'
+      Tags: [{ Key: Name, Value: Monitoring-Subnet2A }]
+
+  Subnet2B:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: '10.0.5.0/24'
+      Tags: [{ Key: Name, Value: Monitoring-Subnet2B }]
+
+  Subnet2C:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: '10.0.6.0/24'
+      Tags: [{ Key: Name, Value: Monitoring-Subnet2C }]
+
+# Security Groups
+  SG1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Monitoring SG 1
+      VpcId: !Ref VPC1
+      Tags: [{ Key: Name, Value: Monitoring-SG1 }]
+
+  SG2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Monitoring SG 2
+      VpcId: !Ref VPC2
+      Tags: [{ Key: Name, Value: Monitoring-SG2 }]
+
+  SG3:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Monitoring SG 3
+      VpcId: !Ref VPC2
+      Tags: [{ Key: Name, Value: Monitoring-SG3 }]
+
+# EC2 Instances
+  Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref Subnet1A
+      SecurityGroupIds: [!Ref SG1]
+      Tags: [{ Key: Name, Value: Monitoring-EC2-1 }]
+
+  Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref Subnet1B
+      SecurityGroupIds: [!Ref SG1]
+      Tags: [{ Key: Name, Value: Monitoring-EC2-2 }]
+
+  Instance3:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref Subnet1C
+      SecurityGroupIds: [!Ref SG1]
+      Tags: [{ Key: Name, Value: Monitoring-EC2-3 }]
+
+  Instance4:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref Subnet2A
+      SecurityGroupIds: [!Ref SG2]
+      Tags: [{ Key: Name, Value: Monitoring-EC2-4 }]
+
+  Instance5:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref Subnet2B
+      SecurityGroupIds: [!Ref SG2]
+      Tags: [{ Key: Name, Value: Monitoring-EC2-5 }]
+
+  Instance6:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref Subnet2C
+      SecurityGroupIds: [!Ref SG2]
+      Tags: [{ Key: Name, Value: Monitoring-EC2-6 }]
+
+# SSM Document for Datadog
+  DatadogSSMDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Name: Install-DatadogAgent
+      Content:
+        schemaVersion: '2.2'
+        description: "Install Datadog Agent"
+        mainSteps:
+          - action: aws:runPowerShellScript
+            name: installDatadog
+            inputs:
+              runCommand:
+                - Start-Process -Wait msiexec -ArgumentList '/qn /i "https://s3.amazonaws.com/ddagent-windows-stable/datadog-agent-7-latest.amd64.msi" APIKEY="{{ DatadogAPIKey }}" SITE="datadoghq.com"'
+
+# SSM Document for Qualys (Sample)
+  QualysSSMDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Name: Install-QualysAgent
+      Content:
+        schemaVersion: '2.2'
+        description: "Install Qualys Agent"
+        mainSteps:
+          - action: aws:runPowerShellScript
+            name: installQualys
+            inputs:
+              runCommand:
+                - Write-Host "Installing Qualys agent - replace with real command"
