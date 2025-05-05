@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Monitoring Account - 2 VPCs, 6 Private Subnets, 6 Windows EC2 Instances, 3 SGs, SSM Doc for Datadog Agent
+
+Parameters:
+  Vpc1CIDR:
+    Type: String
+    Description: CIDR for VPC 1
+  Vpc2CIDR:
+    Type: String
+    Description: CIDR for VPC 2
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    Description: EC2 Instance Type
+  WindowsAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI ID for Windows Server
+  DatadogAPIKey:
+    Type: String
+    NoEcho: true
+    Description: Datadog API Key
+
+Resources:
+
+  # --- VPCs ---
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref Vpc1CIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: Monitoring-VPC1 }]
+
+  VPC2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref Vpc2CIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: Monitoring-VPC2 }]
+
+  # --- Private Subnets ---
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: !Select [0, !Cidr [!Ref Vpc1CIDR, 3, 8]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags: [{ Key: Name, Value: Subnet1-VPC1 }]
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: !Select [1, !Cidr [!Ref Vpc1CIDR, 3, 8]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags: [{ Key: Name, Value: Subnet2-VPC1 }]
+  Subnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: !Select [2, !Cidr [!Ref Vpc1CIDR, 3, 8]]
+      AvailabilityZone: !Select [2, !GetAZs '']
+      Tags: [{ Key: Name, Value: Subnet3-VPC1 }]
+  Subnet4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: !Select [0, !Cidr [!Ref Vpc2CIDR, 3, 8]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags: [{ Key: Name, Value: Subnet1-VPC2 }]
+  Subnet5:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: !Select [1, !Cidr [!Ref Vpc2CIDR, 3, 8]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags: [{ Key: Name, Value: Subnet2-VPC2 }]
+  Subnet6:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: !Select [2, !Cidr [!Ref Vpc2CIDR, 3, 8]]
+      AvailabilityZone: !Select [2, !GetAZs '']
+      Tags: [{ Key: Name, Value: Subnet3-VPC2 }]
+
+  # --- Security Groups ---
+  SG1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SG1 for VPC1
+      VpcId: !Ref VPC1
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  SG2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SG2 for VPC1
+      VpcId: !Ref VPC1
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  SG3:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SG3 for VPC2
+      VpcId: !Ref VPC2
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  # --- IAM Role & Instance Profile ---
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref EC2Role]
+
+  # --- EC2 Instances ---
+  EC2Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      SubnetId: !Ref Subnet1
+      SecurityGroupIds: [!Ref SG1]
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags: [{ Key: Name, Value: EC2-1-VPC1 }]
+
+  EC2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      SubnetId: !Ref Subnet2
+      SecurityGroupIds: [!Ref SG1]
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags: [{ Key: Name, Value: EC2-2-VPC1 }]
+
+  EC2Instance3:
+    Type: AWS::EC2::Instance
+    Properties:
+      SubnetId: !Ref Subnet3
+      SecurityGroupIds: [!Ref SG2]
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags: [{ Key: Name, Value: EC2-3-VPC1 }]
+
+  EC2Instance4:
+    Type: AWS::EC2::Instance
+    Properties:
+      SubnetId: !Ref Subnet4
+      SecurityGroupIds: [!Ref SG3]
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags: [{ Key: Name, Value: EC2-4-VPC2 }]
+
+  EC2Instance5:
+    Type: AWS::EC2::Instance
+    Properties:
+      SubnetId: !Ref Subnet5
+      SecurityGroupIds: [!Ref SG3]
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags: [{ Key: Name, Value: EC2-5-VPC2 }]
+
+  EC2Instance6:
+    Type: AWS::EC2::Instance
+    Properties:
+      SubnetId: !Ref Subnet6
+      SecurityGroupIds: [!Ref SG3]
+      ImageId: !Ref WindowsAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags: [{ Key: Name, Value: EC2-6-VPC2 }]
+
+  # --- SSM Document for Datadog Agent Installation ---
+  InstallDatadogAgent:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Name: InstallDatadogAgent
+      Content:
+        schemaVersion: '2.2'
+        description: Install Datadog Agent on Windows
+        mainSteps:
+          - action: aws:runPowerShellScript
+            name: InstallDatadog
+            inputs:
+              runCommand:
+                - !Sub |
+                    Start-Process -Wait msiexec -ArgumentList '/qn /i "https://s3.amazonaws.com/ddagent-windows-stable/datadog-agent-7-latest.amd64.msi" APIKEY="${DatadogAPIKey}" SITE="datadoghq.com"'
+
+Outputs:
+  VPC1ID:
+    Description: VPC1 ID
+    Value: !Ref VPC1
+  VPC2ID:
+    Description: VPC2 ID
+    Value: !Ref VPC2
+  SSMDocument:
+    Description: SSM Document Name
+    Value: !Ref InstallDatadogAgent
