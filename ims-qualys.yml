@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Windows Golden AMI Pipeline using EC2 Image Builder with Custom Software.
+
+Parameters:
+  BaseAMI:
+    Type: String
+    Description: Base AMI ID for Windows (e.g., ami-xxxx for Windows Server 2022, 2019, 2016)
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet ID for infrastructure configuration
+
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID for the building Golden Image instance
+
+  AmiTags:
+    Type: String
+    Description: Tags to apply to the Golden Image
+
+  TargetAccountIds:
+    Type: CommaDelimitedList
+    Description: List of Account IDs with whom Golden/Base image will be shared
+
+Resources:
+  ImageBuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: Tesco-IMS-ImageBuilder-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ImageBuilderRole
+      Path: "/"
+
+  Customsoftware:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: Customsoftware
+      Platform: Windows
+      Version: 1.0.0
+      Description: Install Custom Software Agents and AWS CLI
+      ChangeDescription: Added AWS CLI v2 installation
+      Data: |
+        name: InstallSSMAgentAndAWSCLI
+        description: Install SSM Agent and AWS CLI v2
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallSSMAgent
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - "[System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'"
+                    - "$progressPreference = 'silentlyContinue'"
+                    - Invoke-WebRequest -Uri 'https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/windows_amd64/AmazonSSMAgentSetup.exe' -OutFile 'C:\\Temp\\SSMAgentSetup.exe'"
+                    - Start-Process -FilePath 'C:\\Temp\\SSMAgentSetup.exe' -ArgumentList '/S' -Wait
+
+              - name: InstallAWSCLI
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - "[System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'"
+                    - "$progressPreference = 'silentlyContinue'"
+                    - Invoke-WebRequest -Uri 'https://awscli.amazonaws.com/AWSCLIV2.msi' -OutFile 'C:\\Temp\\AWSCLIV2.msi'"
+                    - Start-Process msiexec.exe -ArgumentList '/i', 'C:\\Temp\\AWSCLIV2.msi', '/quiet' -Wait
+
+  ImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: Tesco-IMS-GoldenImage-Windows2022-Recipe
+      Description: Tesco-IMS-GoldenImage-Windows2022-Recipe
+      Version: 1.0.0
+      ParentImage: !Ref BaseAMI
+      Components:
+        - ComponentArn: !Ref Customsoftware
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+
+  InfrastructureConfiguration:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: Tesco-IMS-GoldenImage-InfrastructureConfig
+      Description: Tesco-IMS-GoldenImage-InfrastructureConfig
+      InstanceProfileName: !Ref InstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      TerminateInstanceOnFailure: true
+
+  DistributionConfiguration:
+    Type: AWS::ImageBuilder::DistributionConfiguration
+    Properties:
+      Name: Tesco-IMS-GoldenImage-DistributionConfig
+      Description: Distribution config for Tesco Windows Golden Image
+      Distributions:
+        - Region: !Ref "AWS::Region"
+          AmiDistributionConfiguration:
+            Name: "Tesco-IMS-GoldenImage-Windows2022-{{ imagebuilder:buildDate }}"
+            TargetAccountIds: !Ref TargetAccountIds
+            AmiTags: 
+              "CreatedBy": "ImageBuilder"
+              "Environment": "GoldenAMI"
+
+  ImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: Tesco-IMS-GoldenImage-Windows2022
+      Description: Tesco-IMS-GoldenImage-Windows2022
+      ImageRecipeArn: !Ref ImageRecipe
+      InfrastructureConfigurationArn: !Ref InfrastructureConfiguration
+      DistributionConfigurationArn: !Ref DistributionConfiguration
+      Schedule:
+        PipelineExecutionStartCondition: EXPRESSION_MATCH_AND_DEPENDENCY_UPDATES_AVAILABLE
+        ScheduleExpression: cron(0 3 1 1,4,7,10 ? *)
+      Status: ENABLED
+
+Outputs:
+  AMIPipelineName:
+    Description: Name of the Golden AMI Pipeline
+    Value: !Ref ImagePipeline
