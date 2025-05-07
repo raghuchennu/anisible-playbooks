@@ -1,10 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Windows Golden AMI Pipeline using EC2 Image Builder with Custom Software.
+Description: Windows Golden AMI Pipeline using EC2 Image Builder with SSM and Qualys Agent Installation
 
 Parameters:
   BaseAMI:
     Type: String
-    Description: Base AMI ID for Windows (e.g., ami-xxxx for Windows Server 2022, 2019, 2016)
+    Description: Base AMI ID for Windows (e.g., ami-xxxx for Windows Server 2022)
 
   SubnetId:
     Type: AWS::EC2::Subnet::Id
@@ -26,7 +26,7 @@ Resources:
   ImageBuilderRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: Tesco-IMS-ImageBuilder-Role
+      RoleName: Tesco-IMS-ImageBuilder-Role-1-test-Qualys
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -51,14 +51,14 @@ Resources:
   Customsoftware:
     Type: AWS::ImageBuilder::Component
     Properties:
-      Name: Customsoftware
+      Name: InstallSSMAndQualys
       Platform: Windows
       Version: 1.0.0
-      Description: Install Custom Software Agents and AWS CLI
-      ChangeDescription: Added AWS CLI v2 installation
+      Description: Install SSM Agent and Qualys Cloud Agent
+      ChangeDescription: Added SSM and Qualys agent installations
       Data: |
-        name: InstallSSMAgentAndAWSCLI
-        description: Install SSM Agent and AWS CLI v2
+        name: InstallSSMAndQualys
+        description: Install SSM Agent and Qualys Cloud Agent
         schemaVersion: 1.0
         phases:
           - name: build
@@ -69,17 +69,16 @@ Resources:
                   commands:
                     - "[System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'"
                     - "$progressPreference = 'silentlyContinue'"
-                    - Invoke-WebRequest -Uri 'https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/windows_amd64/AmazonSSMAgentSetup.exe' -OutFile 'C:\\Temp\\SSMAgentSetup.exe'"
-                    - Start-Process -FilePath 'C:\\Temp\\SSMAgentSetup.exe' -ArgumentList '/S' -Wait
-
-              - name: InstallAWSCLI
+                    - Invoke-WebRequest -Uri "https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/windows_amd64/AmazonSSMAgentSetup.exe" -OutFile "$env:ProgramData\\AmazonSSMAgentSetup.exe"
+                    - Start-Process -FilePath "$env:ProgramData\\AmazonSSMAgentSetup.exe" -ArgumentList '/S' -Wait
+              - name: InstallQualysAgent
                 action: ExecutePowerShell
                 inputs:
                   commands:
                     - "[System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'"
                     - "$progressPreference = 'silentlyContinue'"
-                    - Invoke-WebRequest -Uri 'https://awscli.amazonaws.com/AWSCLIV2.msi' -OutFile 'C:\\Temp\\AWSCLIV2.msi'"
-                    - Start-Process msiexec.exe -ArgumentList '/i', 'C:\\Temp\\AWSCLIV2.msi', '/quiet' -Wait
+                    - Invoke-WebRequest -Uri "https://your-s3-bucket-name.s3.eu-west-1.amazonaws.com/windows/QualysCloudAgent.msi" -OutFile "$env:ProgramData\\QualysCloudAgent.msi"
+                    - Start-Process msiexec.exe -ArgumentList '/i', '"$env:ProgramData\\QualysCloudAgent.msi"', 'ActivationId=902ab11f-5dba-4233-ace3-fd1763289ed2', 'CustomerId=bf0defd6-1e4a-da0d-8289-27ca9236ee31', 'ServerUri=https://qagpublic.qg1.apps.qualys.in/CloudAgent/', '/quiet' -Wait
 
   ImageRecipe:
     Type: AWS::ImageBuilder::ImageRecipe
