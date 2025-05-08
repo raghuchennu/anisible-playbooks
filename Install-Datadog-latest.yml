@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  EC2 Image Builder pipeline for Windows Golden AMI with
+  separate components for SSM Agent, AWS CLI, Qualys Agent, and Datadog Agent installation
+
+Parameters:
+  BaseAMI:
+    Type: String
+    Description: Base AMI ID for Windows (e.g., ami-xxxx for Windows Server 2022)
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet ID for infrastructure configuration
+
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID for the Golden Image builder instance
+
+  AmiTags:
+    Type: String
+    Description: Tags to apply to the Golden Image
+
+  TargetAccountIds:
+    Type: CommaDelimitedList
+    Description: List of Account IDs to share the Golden AMI with
+
+Resources:
+
+  ImageBuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: Tesco-IMS-ImageBuilder-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ImageBuilderRole
+      Path: "/"
+
+  InstallSSMAgentComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: InstallSSMAgent
+      Platform: Windows
+      Version: 1.0.0
+      Description: Install SSM Agent
+      ChangeDescription: Install Amazon SSM Agent
+      Data: |
+        name: InstallSSMAgent
+        description: Install SSM Agent
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallSSMAgent
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - "[System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'"
+                    - "$ProgressPreference = 'SilentlyContinue'"
+                    - "Invoke-WebRequest -Uri 'https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/windows_amd64/AmazonSSMAgentSetup.exe' -OutFile '$env:ProgramData\\AmazonSSMAgentSetup.exe'"
+                    - "Start-Process -FilePath '$env:ProgramData\\AmazonSSMAgentSetup.exe' -ArgumentList '/S' -Wait"
+
+  InstallAWSCLIComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: InstallAWSCLI
+      Platform: Windows
+      Version: 1.0.0
+      Description: Install AWS CLI
+      ChangeDescription: Install AWS CLI
+      Data: |
+        name: InstallAWSCLI
+        description: Install AWS CLI
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallAWSCLI
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - "Invoke-WebRequest -Uri 'https://awscli.amazonaws.com/AWSCLIV2.msi' -OutFile '$env:TEMP\\AWSCLIV2.msi'"
+                    - "Start-Process msiexec.exe -ArgumentList '/i', '$env:TEMP\\AWSCLIV2.msi', '/quiet' -Wait"
+
+  InstallQualysAgentComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: InstallQualysAgent
+      Platform: Windows
+      Version: 1.0.0
+      Description: Install Qualys Cloud Agent
+      ChangeDescription: Install Qualys Agent from S3
+      Data: |
+        name: InstallQualysAgent
+        description: Install Qualys Cloud Agent
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallQualysAgent
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - "[System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'"
+                    - "$ProgressPreference = 'SilentlyContinue'"
+                    - "aws s3 cp s3://qualysagent050525/windows/QualysCloudAgent.exe C:\\"
+                    - "C:\\QualysCloudAgent.exe CustomerId=1008b228-f7c0-76fb-80bd-41d0d653fa02 ActivationId=ad383e19-ade4-431b-a8b2-d71bd2c1a309 WebServiceUri=https://qagpublic.qg1.apps.qualys.co.uk/CloudAgent/"
+
+  InstallDatadogAgentComponent:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: InstallDatadogAgent
+      Platform: Windows
+      Version: 1.0.0
+      Description: Install Datadog Agent
+      ChangeDescription: Add Datadog Agent installation
+      Data: |
+        name: InstallDatadogAgent
+        description: Install Datadog Agent for monitoring
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallDatadog
+                action: ExecutePowerShell
+                inputs:
+                  commands:
+                    - "[System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'"
+                    - "$ProgressPreference = 'SilentlyContinue'"
+                    - "Invoke-WebRequest -Uri 'https://s3.amazonaws.com/ddagent-windows-stable/datadog-agent-7-latest.amd64.msi' -OutFile '$env:TEMP\\datadog-agent.msi'"
+                    - "Start-Process -Wait msiexec.exe -ArgumentList '/qn', '/i', '$env:TEMP\\datadog-agent.msi', 'APIKEY=100120806b7b4de36828e7da575cdf40', 'SITE=datadoghq.com'"
+
+  ImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: Tesco-IMS-GoldenImage-Windows2022-Recipe
+      Version: 1.0.0
+      ParentImage: !Ref BaseAMI
+      Description: Windows Server 2022 Golden AMI with SSM, CLI, Qualys, and Datadog
+      Components:
+        - ComponentArn: !Ref InstallSSMAgentComponent
+        - ComponentArn: !Ref InstallAWSCLIComponent
+        - ComponentArn: !Ref InstallQualysAgentComponent
+        - ComponentArn: !Ref InstallDatadogAgentComponent
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: 40
+            VolumeType: gp3
+
+  InfrastructureConfiguration:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: Tesco-IMS-GoldenImage-InfrastructureConfig
+      InstanceProfileName: !Ref InstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      TerminateInstanceOnFailure: true
+
+  DistributionConfiguration:
+    Type: AWS::ImageBuilder::DistributionConfiguration
+    Properties:
+      Name: Tesco-IMS-GoldenImage-DistributionConfig
+      Description: Distribution config for Tesco Windows Golden Image
+      Distributions:
+        - Region: !Ref "AWS::Region"
+          AmiDistributionConfiguration:
+            Name: "Tesco-IMS-GoldenImage-Windows2022-{{ imagebuilder:buildDate }}"
+            TargetAccountIds: !Ref TargetAccountIds
+            AmiTags:
+              CreatedBy: ImageBuilder
+              Environment: GoldenAMI
+
+  ImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: Tesco-IMS-GoldenImage-Windows2022-Pipeline
+      ImageRecipeArn: !Ref ImageRecipe
+      InfrastructureConfigurationArn: !Ref InfrastructureConfiguration
+      DistributionConfigurationArn: !Ref DistributionConfiguration
+      Status: ENABLED
