@@ -1,0 +1,23 @@
+InstallQualysAgentComponent:
+  Type: AWS::ImageBuilder::Component
+  Properties:
+    Name: InstallQualysAgent
+    Platform: Windows
+    Version: 1.0.0
+    Description: Install Qualys Cloud Agent
+    ChangeDescription: Install Qualys Agent from S3
+    Data: |
+      name: InstallQualysAgent
+      description: Install Qualys Cloud Agent
+      schemaVersion: 1.0
+      phases:
+        - name: build
+          steps:
+            - name: InstallQualysAgent
+              action: ExecutePowerShell
+              inputs:
+                commands:
+                  - "[System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'"
+                  - "$ProgressPreference = 'SilentlyContinue'"
+                  - "aws s3 cp s3://qualysagent050525/windows/QualysCloudAgent.exe C:\\ProgramData\\QualysCloudAgent.exe"
+                  - 'Start-Process -FilePath "C:\\ProgramData\\QualysCloudAgent.exe" -ArgumentList "/quiet", "CustomerId=1008b228-f7c0-76fb-80bd-41d0d653fa02", "ActivationId=ad383e19-ade4-431b-a8b2-d71bd2c1a309", "WebServiceUri=https://qagpublic.qg1.apps.qualys.co.uk/CloudAgent/" -Wait'
