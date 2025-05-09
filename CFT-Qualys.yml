@@ -1,3 +1,15 @@
+      Components:
+        - ComponentArn: !Ref InstallSSMAgentComponent
+        - ComponentArn: !Ref InstallAWSCLIComponent
+        - ComponentArn: !Ref InstallQualysAgentComponent
+        - ComponentArn: !Ref InstallDatadogAgentComponent
+        - ComponentArn: !Ref InstallMicrosoftDefenderComponent
+        - ComponentArn: !Ref InstallCloudWatchAgentComponent   # <-- Add this line
+
+
+
+
+
 
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 Invoke-WebRequest -Uri "https://amazoncloudwatch-agent.s3.amazonaws.com/windows/amd64/latest/AmazonCloudWatchAgentInstaller.exe" -OutFile "$env:TEMP\AmazonCloudWatchAgentInstaller.exe"
