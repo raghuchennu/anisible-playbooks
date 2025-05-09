@@ -1,3 +1,8 @@
+
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+Invoke-WebRequest -Uri "https://amazoncloudwatch-agent.s3.amazonaws.com/windows/amd64/latest/AmazonCloudWatchAgentInstaller.exe" -OutFile "$env:TEMP\AmazonCloudWatchAgentInstaller.exe"
+
+
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   Windows Golden AMI Pipeline using EC2 Image Builder with 
