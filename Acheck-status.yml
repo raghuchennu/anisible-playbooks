@@ -1,0 +1,53 @@
+#!/bin/bash
+
+echo "CIS Controls Status Check Only (No Remediation)"
+
+# Control 17971
+echo -n "17971 aidecheck.service: "
+systemctl is-enabled aidecheck.service &>/dev/null && echo "PASS" || echo "FAIL"
+
+# Control 17972
+echo -n "17972 aidecheck.timer: "
+systemctl is-enabled aidecheck.timer &>/dev/null && echo "PASS" || echo "FAIL"
+
+# Control 17973
+echo -n "17973 aidecheck.timer (running): "
+systemctl is-active aidecheck.timer &>/dev/null && echo "PASS" || echo "FAIL"
+
+# Control 26888
+echo -n "26888 AllowUsers in sshd_config: "
+grep -q "^AllowUsers" /etc/ssh/sshd_config && echo "PASS" || echo "FAIL"
+
+# Control 26996
+echo -n "26996 Weak MACs in SSH config: "
+if grep -q "^MACs" /etc/ssh/sshd_config && ! grep -q "hmac-sha1" /etc/ssh/sshd_config; then
+  echo "PASS"
+else
+  echo "FAIL"
+fi
+
+# Control 27228
+echo -n "27228 SSH Banner setting: "
+grep -q "^Banner /etc/issue.net" /etc/ssh/sshd_config && echo "PASS" || echo "FAIL"
+
+# Control 20220
+echo -n "20220 GRUB2 password protection: "
+grep -q "^GRUB2_PASSWORD" /boot/grub2/user.cfg && echo "PASS" || echo "FAIL"
+
+# Control 28408
+echo -n "28408 Remember in password-auth: "
+grep -q "pam_pwhistory.so.*remember=" /etc/pam.d/password-auth && echo "PASS" || echo "FAIL"
+
+# Control 28409
+echo -n "28409 Remember in system-auth: "
+grep -q "pam_pwhistory.so.*remember=" /etc/pam.d/system-auth && echo "PASS" || echo "FAIL"
+
+# Control 29023
+echo -n "29023 IgnoreUserKnownHosts: "
+grep -q "^IgnoreUserKnownHosts yes" /etc/ssh/sshd_config && echo "PASS" || echo "FAIL"
+
+# Control 29435
+echo -n "29435 MaxAuthTries in sshd_config: "
+grep -q "^MaxAuthTries [1-4]" /etc/ssh/sshd_config && echo "PASS" || echo "FAIL"
+
+echo "Status check completed."
