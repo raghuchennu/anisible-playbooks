@@ -1,6 +1,0 @@
-I’ve successfully completed and validated the CloudFormation template for the DevOps account setup. The template provisions:
-	•	A VPC with CIDR validation (supports 10.x.x.x/21 to /28)
-	•	One public subnet and three private subnets (Jenkins, SonarQube, Nexus)
-	•	Route tables, NAT Gateway, and proper associations
-	•	Three EC2 instances deployed into the private subnets
-	•	Fully parameterized with no hardcoded CIDRs
