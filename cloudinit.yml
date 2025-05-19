@@ -1,0 +1,30 @@
+EnableCloudInitAndFixTmp:
+  Type: AWS::ImageBuilder::Component
+  Properties:
+    Name: enable-cloud-init-rhel-810
+    Platform: Linux
+    Version: 1.0.0
+    Description: Fix for RHEL 8.10 EC2 Image Builder bootstrap failure
+    ChangeDescription: Install cloud-init and remount /tmp with exec
+    Data: |
+      name: EnableCloudInitAndFixTmp
+      description: Install and enable cloud-init, fix /tmp noexec issue
+      schemaVersion: 1.0
+      phases:
+        - name: build
+          steps:
+            - name: InstallCloudInit
+              action: ExecuteBash
+              inputs:
+                commands:
+                  - yum install -y cloud-init
+                  - systemctl enable cloud-init
+                  - systemctl enable cloud-config
+                  - systemctl enable cloud-final
+                  - systemctl start cloud-init
+            - name: FixTmpMount
+              action: ExecuteBash
+              inputs:
+                commands:
+                  - mount -o remount,exec /tmp
+                  - chmod 1777 /tmp
