@@ -1,0 +1,32 @@
+  InstallSSMAgentComponents:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: install-ssm-agent-rhel
+      Platform: Linux
+      Version: 1.0.1
+      Description: Install and preserve SSM Agent for RHEL 8.10
+      ChangeDescription: Finalized version that ensures SSM is installed, enabled, and not removed
+      Data: |
+        name: InstallSSMAgent
+        description: Install and preserve SSM Agent
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallSSMAgent
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - sudo dnf install -y python3 wget
+                    - cd /tmp
+                    - wget https://s3.eu-west-1.amazonaws.com/amazon-ssm-eu-west-1/latest/linux_amd64/amazon-ssm-agent.rpm
+                    - sudo dnf install -y amazon-ssm-agent.rpm
+                    - sudo systemctl enable amazon-ssm-agent
+                    - sudo systemctl start amazon-ssm-agent
+                    - sudo systemctl status amazon-ssm-agent
+              - name: KeepSSMAgentAlive
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - echo "Prevent EC2 Image Builder from removing SSM agent"
+                    - sudo rm -rf /tmp/imagebuilder_service/ssm_installed
