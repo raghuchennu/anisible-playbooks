@@ -1,0 +1,242 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  EC2 Image Builder pipeline for RHEL 8.10 Golden AMI with SSM, AWS CLI, Datadog, CloudWatch, and Qualys Agent installation.
+
+Parameters:
+  BaseAMI:
+    Type: String
+    Description: Base AMI ID for RHEL 8.10 (e.g., ami-xxxx)
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet ID for infrastructure configuration
+
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID for the Golden Image builder instance
+
+  TargetAccountIds:
+    Type: CommaDelimitedList
+    Description: List of Account IDs to share the Golden AMI with
+
+  OSCreatedDate:
+    Type: String
+  CostCenter:
+    Type: String
+  OSVersion:
+    Type: String
+  Environment:
+    Type: String
+  Owner:
+    Type: String
+  Project:
+    Type: String
+  Application:
+    Type: String
+  Compliance:
+    Type: String
+  Releasedate:
+    Type: String
+
+Resources:
+
+  ImageBuilderRoleS:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: Tesco-IMS-ImageBuilder-Rolee
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+  ImageBuilderserviceRoleS:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: Tesco-IMS-ImageBuilder-service-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: imagebuilder.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/EC2InstanceProfileForImageBuilder
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: "tesco-instanceprofile"
+      Roles:
+        - !Ref ImageBuilderRoleS
+      Path: "/"
+
+  InstallSSMAgentComponents:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: install-ssm-agent-rhel
+      Platform: Linux
+      Version: 1.0.0
+      Description: Install SSM Agent
+      ChangeDescription: SSM Agent installation
+      Data: |
+        name: InstallSSMAgent
+        description: Install Amazon SSM Agent
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallSSMAgent
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - sudo dnf install -y python3
+                    - cd /tmp
+                    - sudo dnf install -y https://s3.eu-west-1.amazonaws.com/amazon-ssm-eu-west-1/latest/linux_amd64/amazon-ssm-agent.rpm
+                    - sudo systemctl enable amazon-ssm-agent
+                    - sudo systemctl start amazon-ssm-agent
+
+  RemediationScript:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: remediation-script
+      Platform: Linux
+      Version: 1.0.0
+      Description: Run CIS remediation script
+      ChangeDescription: Executes RedHat remediation script
+      Data: |
+        name: Remediation
+        description: Run CIS remediation
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: RunScript
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    
+                    - sudo dnf install dos2unix -y
+                    - dos2unix /rmd/RedHat-Remidationscript.sh
+                    - chmod +x /rmd/RedHat-Remidationscript.sh
+                    - /rmd/RedHat-Remidationscript.sh
+
+
+  InstallQualysAgentComponents:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: install-qualys-agent-rhel
+      Platform: Linux
+      Version: 1.0.0
+      Description: Install Qualys Agent
+      ChangeDescription: Placeholder for Qualys agent install
+      Data: |
+        name: InstallQualysAgent
+        description: Install Qualys Cloud Agent
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallQualysAgent
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    -
+
+  InstallDatadogAgentComponents:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: install-datadog-agent-rhel
+      Platform: Linux
+      Version: 1.0.0
+      Description: Install Datadog Agent
+      ChangeDescription: Placeholder for Datadog install
+      Data: |
+        name: InstallDatadogAgent
+        description: Install Datadog Agent
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallDatadogAgent
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    -
+
+  ImageRecipes:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: Tesco-IMS-GoldenImage-Rhel-Recipe
+      Version: 1.0.0
+      ParentImage: !Ref BaseAMI
+      Description: RHEL 8.10 Golden AMI with all standard agents and tooling
+      Components:
+        - ComponentArn: arn:aws:imagebuilder:eu-west-1:aws:component/aws-cli-version-2-linux/1.0.4/1
+        - ComponentArn: !Ref InstallSSMAgentComponents
+        - ComponentArn: !Ref InstallQualysAgentComponents
+        - ComponentArn: !Ref InstallDatadogAgentComponents
+        - ComponentArn: !Ref RemediationScript
+        - ComponentArn: arn:aws:imagebuilder:eu-west-1:aws:component/amazon-cloudwatch-agent-linux/1.0.1/1
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: 128
+            VolumeType: gp3
+
+  InfrastructureConfiguration:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: Tesco-IMS-GoldenImage-InfrastructureConfig-rhel
+      InstanceProfileName: !Ref InstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      TerminateInstanceOnFailure: true
+
+  DistributionConfiguration:
+    Type: AWS::ImageBuilder::DistributionConfiguration
+    Properties:
+      Name: Tesco-IMS-GoldenImage-DistributionConfig-rhel
+      Description: AMI distribution configuration
+      Distributions:
+        - Region: !Ref "AWS::Region"
+          AmiDistributionConfiguration:
+            Name: "Tesco-IMS-GoldenImage-Rhel-{{ imagebuilder:buildDate }}"
+            TargetAccountIds: !Ref TargetAccountIds
+
+  ImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: Tesco-IMS-GoldenImage-rhel
+      ImageRecipeArn: !Ref ImageRecipes
+      InfrastructureConfigurationArn: !Ref InfrastructureConfiguration
+      DistributionConfigurationArn: !Ref DistributionConfiguration
+      Schedule:
+        PipelineExecutionStartCondition: EXPRESSION_MATCH_AND_DEPENDENCY_UPDATES_AVAILABLE
+        ScheduleExpression: cron(0 9 ? * 2#3 *)
+      Status: ENABLED
+      ImageBuilderServiceRole: !Ref ImageBuilderserviceRoleS
+      Tags:
+        OSCreatedDate: !Ref OSCreatedDate
+        OSVersion: !Ref OSVersion
+        Environment: !Ref Environment
+        Owner: !Ref Owner
+        Project: !Ref Project
+        Application: !Ref Application
+        Releasedate: !Ref Releasedate
+        CostCenter: !Ref CostCenter
+
+Outputs:
+  PipelineName:
+    Description: Name of the EC2 Image Builder pipeline
+    Value: !Ref ImagePipeline
