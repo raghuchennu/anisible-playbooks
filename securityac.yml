@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template for Prod, Non-Prod, and Inspection VPCs with
+  Subnets, Route Tables, AWS Network Firewall, and CloudWAN integration.
+  No hardcoded values.
+
+Parameters:
+  EnvironmentPrefix:
+    Type: String
+    Default: tesco
+    Description: Prefix for naming resources
+
+  ProdVpcCidr:
+    Type: String
+    Description: CIDR block for the Prod VPC
+
+  NonProdVpcCidr:
+    Type: String
+    Description: CIDR block for the Non-Prod VPC
+
+  InspectionVpcCidr:
+    Type: String
+    Description: CIDR block for the Inspection VPC
+
+  ProdSubnet1Cidr:
+    Type: String
+  ProdSubnet2Cidr:
+    Type: String
+  NonProdSubnet1Cidr:
+    Type: String
+  NonProdSubnet2Cidr:
+    Type: String
+  InspectionSubnet1Cidr:
+    Type: String
+  InspectionSubnet2Cidr:
+    Type: String
+
+  AvailabilityZone1:
+    Type: AWS::EC2::AvailabilityZone::Name
+  AvailabilityZone2:
+    Type: AWS::EC2::AvailabilityZone::Name
+
+  FirewallPolicyArn:
+    Type: String
+  CoreNetworkId:
+    Type: String
+  NatGatewayId:
+    Type: String
+
+Resources:
+
+  ##########################
+  # VPCs
+  ##########################
+
+  ProdVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref ProdVpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-prod-vpc"
+
+  NonProdVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref NonProdVpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-nonprod-vpc"
+
+  InspectionVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref InspectionVpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-inspection-vpc"
+
+  ##########################
+  # Subnets
+  ##########################
+
+  ProdSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ProdVPC
+      CidrBlock: !Ref ProdSubnet1Cidr
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-prod-subnet-1"
+
+  ProdSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ProdVPC
+      CidrBlock: !Ref ProdSubnet2Cidr
+      AvailabilityZone: !Ref AvailabilityZone2
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-prod-subnet-2"
+
+  NonProdSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NonProdVPC
+      CidrBlock: !Ref NonProdSubnet1Cidr
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-nonprod-subnet-1"
+
+  NonProdSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NonProdVPC
+      CidrBlock: !Ref NonProdSubnet2Cidr
+      AvailabilityZone: !Ref AvailabilityZone2
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-nonprod-subnet-2"
+
+  InspectionSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref InspectionVPC
+      CidrBlock: !Ref InspectionSubnet1Cidr
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-inspection-subnet-1"
+
+  InspectionSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref InspectionVPC
+      CidrBlock: !Ref InspectionSubnet2Cidr
+      AvailabilityZone: !Ref AvailabilityZone2
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-inspection-subnet-2"
+
+  ##########################
+  # Route Tables for Inspection VPC
+  ##########################
+
+  InspectionRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref InspectionVPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-inspection-rt"
+
+  RouteToInternet:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref InspectionRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayId
+
+  Subnet1RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref InspectionSubnet1
+      RouteTableId: !Ref InspectionRouteTable
+
+  Subnet2RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref InspectionSubnet2
+      RouteTableId: !Ref InspectionRouteTable
+
+  ##########################
+  # Network Firewall
+  ##########################
+
+  NetworkFirewall:
+    Type: AWS::NetworkFirewall::Firewall
+    Properties:
+      FirewallName: !Sub "${EnvironmentPrefix}-network-fw"
+      FirewallPolicyArn: !Ref FirewallPolicyArn
+      VpcId: !Ref InspectionVPC
+      SubnetMappings:
+        - SubnetId: !Ref InspectionSubnet1
+        - SubnetId: !Ref InspectionSubnet2
+      DeleteProtection: false
+      SubnetChangeProtection: false
+      FirewallPolicyChangeProtection: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-network-fw"
+
+  ##########################
+  # CloudWAN Attachment
+  ##########################
+
+  CloudWANAttachment:
+    Type: AWS::NetworkManager::VpcAttachment
+    Properties:
+      CoreNetworkId: !Ref CoreNetworkId
+      VpcArn: !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${InspectionVPC}
+      SubnetArns:
+        - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${InspectionSubnet1}
+        - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${InspectionSubnet2}
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentPrefix}-cloudwan-attach"
+
+Outputs:
+  ProdVpcId:
+    Value: !Ref ProdVPC
+  NonProdVpcId:
+    Value: !Ref NonProdVPC
+  InspectionVpcId:
+    Value: !Ref InspectionVPC
+  NetworkFirewallId:
+    Value: !Ref NetworkFirewall
+  CloudWANAttachmentId:
+    Value: !Ref CloudWANAttachment
